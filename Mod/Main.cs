@@ -457,6 +457,7 @@ namespace MotorsportManagerCoop
             lock (_incomingLock) if (_incoming.Count > 0) incoming = _incoming.Dequeue();
             if (incoming != null && incoming.IndexOf("\"type\":\"welcome\"", StringComparison.Ordinal) >= 0)
             {
+                Log("processed welcome packet");
                 _isHost = incoming.IndexOf("\"role\":\"host\"", StringComparison.Ordinal) >= 0;
                 _status = _isHost ? "Connected as host" : "Connected as client";
             }
@@ -773,7 +774,7 @@ namespace MotorsportManagerCoop
                         all = all.Substring(end + 1);
                         if (line.Length > 0)
                         {
-                            Log("network packet received type=" + (line.IndexOf("\"type\":\"") >= 0 ? line.Substring(line.IndexOf("\"type\":\"") + 8).Split('"')[1] : "unknown"));
+                            Log("network packet received=" + line.Substring(0, Math.Min(line.Length, 96)));
                             lock (_incomingLock) _incoming.Enqueue(line);
                         }
                     }
