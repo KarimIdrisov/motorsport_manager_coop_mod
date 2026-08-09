@@ -98,6 +98,8 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "BuildTwoParts"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnBuildTwoParts)));
+            _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "PartComplete"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPartComplete)));
             _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "BeginBuilding"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnBeginBuilding)));
@@ -132,6 +134,14 @@ namespace MotorsportManagerCoop
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSessionSimulated)));
             _harmony.Patch(AccessTools.Method(typeof(SessionSimulation), "SimulateEvent"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnEventSimulated)));
+            _harmony.Patch(AccessTools.Method(typeof(Championship), "RecordChampionshipResult"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnChampionshipResult)));
+            _harmony.Patch(AccessTools.Method(typeof(Championship), "OnSeasonStart"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSeasonStart)));
+            _harmony.Patch(AccessTools.Method(typeof(Championship), "OnSeasonEnd"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSeasonEnd)));
+            _harmony.Patch(AccessTools.Method(typeof(RaceEventResults), "PostSessionResults"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPostSessionResults)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
@@ -227,6 +237,12 @@ namespace MotorsportManagerCoop
         {
             SendStrategyAction("car_build_two_parts", __0);
             Log("observed kind=car_build_two_parts value=" + __0);
+        }
+
+        private static void OnPartComplete()
+        {
+            PublishAuthoritativeSave("production_part_complete");
+            Log("observed kind=production_part_complete");
         }
 
         private static int PersonId(Person person)
@@ -351,6 +367,30 @@ namespace MotorsportManagerCoop
         private static void OnEventSimulated()
         {
             Log("observed kind=event_complete");
+        }
+
+        private static void OnChampionshipResult()
+        {
+            PublishAuthoritativeSave("championship_result");
+            Log("observed kind=championship_result");
+        }
+
+        private static void OnSeasonStart()
+        {
+            PublishAuthoritativeSave("season_start");
+            Log("observed kind=season_start");
+        }
+
+        private static void OnSeasonEnd()
+        {
+            PublishAuthoritativeSave("season_end");
+            Log("observed kind=season_end");
+        }
+
+        private static void OnPostSessionResults()
+        {
+            PublishAuthoritativeSave("session_results");
+            Log("observed kind=session_results");
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
