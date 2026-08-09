@@ -712,6 +712,7 @@ namespace MotorsportManagerCoop
                         }
                         else if (line.IndexOf("\"type\":\"resync_request\"", StringComparison.Ordinal) >= 0)
                         {
+                            Log("resync request received");
                             WritePacket(stream, Encoding.UTF8.GetBytes(
                                 "{\"type\":\"resync_snapshot\",\"revision\":" + _hostRevision + "}\n"));
                             SendSaveSnapshot(stream);
