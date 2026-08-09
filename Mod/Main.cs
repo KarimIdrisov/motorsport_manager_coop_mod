@@ -62,6 +62,7 @@ namespace MotorsportManagerCoop
         private static readonly Dictionary<int, Fuel> _fuelByVehicle = new Dictionary<int, Fuel>();
         private static readonly Dictionary<int, ERSController> _ersByVehicle = new Dictionary<int, ERSController>();
         private static readonly Dictionary<int, SessionPitstop> _pitstopsByVehicle = new Dictionary<int, SessionPitstop>();
+        private static readonly Dictionary<int, SessionSetup> _setupsByVehicle = new Dictionary<int, SessionSetup>();
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
         private static bool _gameReady;
@@ -412,6 +413,8 @@ namespace MotorsportManagerCoop
                 if (driving != null) _drivingStylesByVehicle[vehicleId] = driving;
                 if (fuel != null) _fuelByVehicle[vehicleId] = fuel;
                 object setup = ReadObject(vehicle, "setup", "mSetup");
+                SessionSetup sessionSetup = setup as SessionSetup;
+                if (sessionSetup != null) _setupsByVehicle[vehicleId] = sessionSetup;
                 SessionPitstop pitstop = ReadObject(setup, "mSessionPitStop", "sessionPitStop") as SessionPitstop;
                 if (pitstop != null) _pitstopsByVehicle[vehicleId] = pitstop;
             }
@@ -913,7 +916,7 @@ namespace MotorsportManagerCoop
 
         private static void SendRaceAction(string kind, int vehicleId, int value, int aux, int flag)
         {
-            if (_applyRemoteAction || (_stream == null && !_isHost)) return;
+            if (_isHost || _applyRemoteAction || _stream == null) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
@@ -1200,6 +1203,33 @@ namespace MotorsportManagerCoop
                     Log("applied remote pit setup vehicle=" + incomingTarget);
                 }
                 catch (Exception ex) { _status = "Remote pit setup failed: " + ex.Message; Log(_status); }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null &&
+                (incoming.IndexOf("setup_value", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("setup_apply", StringComparison.Ordinal) >= 0))
+            {
+                _applyRemoteAction = true;
+                try
+                {
+                    SessionSetup setup;
+                    if (!_setupsByVehicle.TryGetValue(incomingTarget, out setup)) throw new InvalidOperationException("Session setup target unavailable");
+                    if (incoming.IndexOf("setup_value", StringComparison.Ordinal) >= 0)
+                    {
+                        SetupDetails details = ReadObject(setup, "targetSetup", "mTargetSetup") as SetupDetails;
+                        if (details == null || details.input == null) throw new InvalidOperationException("Target setup input unavailable");
+                        int option = ReadActionInt(incoming, "aux", 0);
+                        details.input.SetSetupValue((SetupInput_v1.SetupInputOptions)option, ReadActionValue(incoming) / 1000f);
+                        setup.SetTargetSetupInput(details.input);
+                        Log("applied remote setup value vehicle=" + incomingTarget + " option=" + option);
+                    }
+                    else
+                    {
+                        setup.MakeSetupChanges();
+                        Log("applied remote setup changes vehicle=" + incomingTarget);
+                    }
+                }
+                catch (Exception ex) { _status = "Remote setup failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("simulation_speed", StringComparison.Ordinal) >= 0 && _timer != null)
@@ -1513,6 +1543,19 @@ namespace MotorsportManagerCoop
                     json.Append(",\"position\":").Append((int)ReadNumber(vehicle, "position", "racePosition", "mRacePosition"));
                     json.Append(",\"fuel\":").Append(ReadNumber(fuel, "fuelLapDistance", "fuelLaps", "mFuelLapDistance").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     json.Append(",\"tyreWear\":").Append(ReadNumber(vehicle, "tyreWear", "mTyreWear").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    SessionSetup sessionSetup;
+                    json.Append(",\"setup\":[");
+                    if (_setupsByVehicle.TryGetValue(pair.Key, out sessionSetup))
+                    {
+                        SetupDetails details = ReadObject(sessionSetup, "targetSetup", "mTargetSetup") as SetupDetails;
+                        for (int option = 0; option < 7; option++)
+                        {
+                            if (option > 0) json.Append(',');
+                            float setupValue = details == null || details.input == null ? 0f : details.input.GetSetupValue((SetupInput_v1.SetupInputOptions)option);
+                            json.Append(setupValue.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                        }
+                    }
+                    json.Append(']');
                     json.Append(",\"status\":\"").Append(JsonEscape(ReadText(vehicle, "currentState", "mCurrentState"))).Append("\"}");
                 }
                 json.Append("]}\n");

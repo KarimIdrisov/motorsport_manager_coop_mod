@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace MotorsportManagerCoopLauncher;
 
-internal sealed record VehicleTelemetry(int Id, string Driver, int Lap, int Position, double Fuel, double TyreWear, string Status)
+internal sealed record VehicleTelemetry(int Id, string Driver, int Lap, int Position, double Fuel, double TyreWear, string Status, double[]? Setup = null)
 {
     public override string ToString() => string.IsNullOrWhiteSpace(Driver) ? $"Машина {Id}" : $"{Driver} (#{Id})";
 }
