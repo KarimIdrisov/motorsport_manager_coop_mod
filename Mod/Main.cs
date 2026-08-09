@@ -107,6 +107,24 @@ namespace MotorsportManagerCoop
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnProcessTransaction)));
             _harmony.Patch(AccessTools.Method(typeof(ContractSponsor), "PayUpfrontSponsorship"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSponsorPayment)));
+            _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "AssignRoleToPitCrewMember"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewAssign)));
+            _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "SwapActivePitCrewMembers"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewSwap)));
+            _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "SignupPitCrewMember"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewSignup)));
+            _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "FirePitCrewMember"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewFire)));
+            _harmony.Patch(AccessTools.Method(typeof(SimulationUtility), "SimulatePractice"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPracticeSimulated)));
+            _harmony.Patch(AccessTools.Method(typeof(SimulationUtility), "SimulateQualifying"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnQualifyingSimulated)));
+            _harmony.Patch(AccessTools.Method(typeof(SimulationUtility), "SimulateRace"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnRaceSimulated)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionSimulation), "SimulateNextSession"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSessionSimulated)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionSimulation), "SimulateEvent"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnEventSimulated)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
@@ -238,6 +256,51 @@ namespace MotorsportManagerCoop
         private static void OnSponsorPayment(bool __0)
         {
             Log("observed kind=sponsor_upfront_payment accepted=" + __0);
+        }
+
+        private static void OnPitCrewAssign(PitCrewMember __0, PitCrewMember __1)
+        {
+            Log("observed kind=pitcrew_assign members=" + (__0 == null ? "-" : __0.name) + "," + (__1 == null ? "-" : __1.name));
+        }
+
+        private static void OnPitCrewSwap(PitCrewMember __0, PitCrewMember __1)
+        {
+            Log("observed kind=pitcrew_swap members=" + (__0 == null ? "-" : __0.name) + "," + (__1 == null ? "-" : __1.name));
+        }
+
+        private static void OnPitCrewSignup(PitCrewMember __0)
+        {
+            Log("observed kind=pitcrew_signup member=" + (__0 == null ? "-" : __0.name));
+        }
+
+        private static void OnPitCrewFire(PitCrewMember __0)
+        {
+            Log("observed kind=pitcrew_fire member=" + (__0 == null ? "-" : __0.name));
+        }
+
+        private static void OnPracticeSimulated()
+        {
+            Log("observed kind=practice_complete");
+        }
+
+        private static void OnQualifyingSimulated()
+        {
+            Log("observed kind=qualifying_complete");
+        }
+
+        private static void OnRaceSimulated()
+        {
+            Log("observed kind=race_complete");
+        }
+
+        private static void OnSessionSimulated()
+        {
+            Log("observed kind=session_complete");
+        }
+
+        private static void OnEventSimulated()
+        {
+            Log("observed kind=event_complete");
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
