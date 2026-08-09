@@ -37,6 +37,7 @@ namespace MotorsportManagerCoop
         private static FileStream _snapshotFile;
         private static string _snapshotTemp;
         private static string _snapshotTarget;
+        private static string _snapshotSaveName = "SaveJohn Sina - Scuderia Rossini 7 Coop.sav";
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
@@ -239,7 +240,9 @@ namespace MotorsportManagerCoop
             }
             if (incoming != null && incoming.IndexOf("\"type\":\"save_begin\"", StringComparison.Ordinal) >= 0)
             {
-                string saveName = "SaveJohn Sina - Scuderia Rossini 7.sav";
+                Match nameMatch = Regex.Match(incoming, "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                string saveName = nameMatch.Success ? nameMatch.Groups[1].Value : _snapshotSaveName;
+                _snapshotSaveName = saveName;
                 string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
                 _snapshotTarget = Path.Combine(dir, saveName);
                 _snapshotTemp = _snapshotTarget + ".coop.tmp";
@@ -260,7 +263,7 @@ namespace MotorsportManagerCoop
                 try
                 {
                     var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
-                    if (method != null) method.Invoke(_saveSystem, new object[] { "SaveJohn Sina - Scuderia Rossini 7" });
+                    if (method != null) method.Invoke(_saveSystem, new object[] { Path.GetFileNameWithoutExtension(_snapshotSaveName) });
                     _status = "Host save received and load requested";
                 }
                 catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; }
@@ -440,10 +443,12 @@ namespace MotorsportManagerCoop
 
         private static void SendSaveSnapshot(NetworkStream stream)
         {
-            string path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves\\SaveJohn Sina - Scuderia Rossini 7.sav";
+            string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
+            string path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7 Coop.sav");
+            if (!File.Exists(path)) path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7.sav");
             if (!File.Exists(path)) return;
             byte[] all = File.ReadAllBytes(path);
-            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_begin\",\"size\":" + all.Length + "}\n"));
+            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_begin\",\"name\":\"" + Path.GetFileName(path) + "\",\"size\":" + all.Length + "}\n"));
             for (int offset = 0; offset < all.Length; offset += 6144)
             {
                 int count = Math.Min(6144, all.Length - offset);
