@@ -762,6 +762,13 @@ namespace MotorsportManagerCoop
                     _stream.Write(request, 0, request.Length);
                     Log("client requested automatic resync");
                 }
+                string autoAction = Environment.GetEnvironmentVariable("MM_COOP_AUTOACTION");
+                if (!String.IsNullOrEmpty(autoAction))
+                {
+                    byte[] action = Encoding.UTF8.GetBytes("{\"type\":\"action\",\"id\":\"auto-test\",\"kind\":\"" + autoAction + "\",\"value\":2}\n");
+                    _stream.Write(action, 0, action.Length);
+                    Log("client sent automatic action kind=" + autoAction);
+                }
                 _receiveThread = new Thread(ReceiveLoop) { IsBackground = true };
                 _receiveThread.Start();
                 _status = "Connected to " + _host + ":" + port;
@@ -782,6 +789,9 @@ namespace MotorsportManagerCoop
                 _isHost = true;
                 _status = "Hosting LAN on port " + port;
                 new Thread(HostLoop) { IsBackground = true }.Start();
+                string autoAction = Environment.GetEnvironmentVariable("MM_COOP_AUTOACTION");
+                if (!String.IsNullOrEmpty(autoAction))
+                    new Thread(() => { Thread.Sleep(2500); SendStrategyAction(autoAction, 2); }) { IsBackground = true }.Start();
             }
             catch (Exception ex) { _status = "Host failed: " + ex.Message; }
         }
