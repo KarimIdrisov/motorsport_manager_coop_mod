@@ -651,6 +651,12 @@ namespace MotorsportManagerCoop
                 byte[] hello = Encoding.UTF8.GetBytes(
                     "{\"type\":\"hello\",\"protocol\":0,\"name\":\"" + _name + "\"}\n");
                 _stream.Write(hello, 0, hello.Length);
+                if (String.Equals(Environment.GetEnvironmentVariable("MM_COOP_AUTOSYNC"), "1", StringComparison.Ordinal))
+                {
+                    byte[] request = Encoding.UTF8.GetBytes("{\"type\":\"resync_request\"}\n");
+                    _stream.Write(request, 0, request.Length);
+                    Log("client requested automatic resync");
+                }
                 _receiveThread = new Thread(ReceiveLoop) { IsBackground = true };
                 _receiveThread.Start();
                 _status = "Connected to " + _host + ":" + port;
@@ -770,7 +776,8 @@ namespace MotorsportManagerCoop
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
             string path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7 Coop.sav");
             if (!File.Exists(path)) path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7.sav");
-            if (!File.Exists(path)) return;
+            if (!File.Exists(path)) { Log("resync snapshot unavailable path=" + path); return; }
+            Log("sending resync snapshot path=" + path);
             byte[] all = File.ReadAllBytes(path);
             string hash = ComputeSha256(path);
             WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_begin\",\"name\":\"" + Path.GetFileName(path) + "\",\"size\":" + all.Length + ",\"sha256\":\"" + hash + "\"}\n"));
