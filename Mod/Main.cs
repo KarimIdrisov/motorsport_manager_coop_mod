@@ -866,7 +866,21 @@ namespace MotorsportManagerCoop
 
         private static void SendPacket(byte[] packet)
         {
-            if (_isHost) { Broadcast(packet, null); return; }
+            if (_isHost)
+            {
+                string line = Encoding.UTF8.GetString(packet).Trim();
+                if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
+                {
+                    int revision = Interlocked.Increment(ref _hostRevision);
+                    int outerEnd = line.LastIndexOf('}');
+                    if (outerEnd >= 0)
+                        line = line.Substring(0, outerEnd) + ",\"revision\":" + revision + "}";
+                    packet = Encoding.UTF8.GetBytes(line + "\n");
+                    Log("host broadcast action revision=" + revision);
+                }
+                Broadcast(packet, null);
+                return;
+            }
             if (_stream == null) return;
             _stream.Write(packet, 0, packet.Length);
         }
