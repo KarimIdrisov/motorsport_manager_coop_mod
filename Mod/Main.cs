@@ -28,6 +28,7 @@ namespace MotorsportManagerCoop
         private static RaceEventDetails _raceEvent;
         private static SessionStrategy _strategy;
         private static CarPartDesign _carDesign;
+        private static HQsBuilding_v1 _hqBuilding;
         private static SaveSystem _saveSystem;
         private static Thread _receiveThread;
         private static readonly Queue<string> _incoming = new Queue<string>();
@@ -90,6 +91,12 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "BuildTwoParts"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnBuildTwoParts)));
+            _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "BeginBuilding"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnBeginBuilding)));
+            _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "BeginUpgrade"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnBeginUpgrade)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "HireNewPerson"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnHirePerson)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "FirePerson"),
@@ -155,6 +162,23 @@ namespace MotorsportManagerCoop
         private static void CaptureCarDesign(CarPartDesign __instance)
         {
             _carDesign = __instance;
+        }
+
+        private static void CaptureHQBuilding(HQsBuilding_v1 __instance)
+        {
+            _hqBuilding = __instance;
+        }
+
+        private static void OnBeginBuilding()
+        {
+            SendStrategyAction("hq_begin_build", 1);
+            Log("observed kind=hq_begin_build");
+        }
+
+        private static void OnBeginUpgrade()
+        {
+            SendStrategyAction("hq_begin_upgrade", 1);
+            Log("observed kind=hq_begin_upgrade");
         }
 
         private static void OnStartDesigning()
@@ -439,6 +463,22 @@ namespace MotorsportManagerCoop
                     _status = "Applied remote car design action";
                 }
                 catch (Exception ex) { _status = "Remote car design failed: " + ex.Message; }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null && _hqBuilding != null &&
+                (incoming.IndexOf("hq_begin_build", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("hq_begin_upgrade", StringComparison.Ordinal) >= 0))
+            {
+                _applyRemoteAction = true;
+                try
+                {
+                    if (incoming.IndexOf("hq_begin_build", StringComparison.Ordinal) >= 0)
+                        _hqBuilding.BeginBuilding();
+                    else
+                        _hqBuilding.BeginUpgrade();
+                    _status = "Applied remote HQ action";
+                }
+                catch (Exception ex) { _status = "Remote HQ action failed: " + ex.Message; }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("manual_save", StringComparison.Ordinal) >= 0 && _saveSystem != null)
