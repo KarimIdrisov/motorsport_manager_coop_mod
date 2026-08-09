@@ -6,6 +6,7 @@ using System.Threading;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using UnityEngine;
 using UnityModManagerNet;
 using HarmonyLib;
@@ -40,6 +41,7 @@ namespace MotorsportManagerCoop
         private static string _snapshotTemp;
         private static string _snapshotTarget;
         private static string _snapshotSaveName = "SaveJohn Sina - Scuderia Rossini 7 Coop.sav";
+        private static string _snapshotExpectedHash;
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
@@ -491,6 +493,8 @@ namespace MotorsportManagerCoop
                 Match nameMatch = Regex.Match(incoming, "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
                 string saveName = nameMatch.Success ? nameMatch.Groups[1].Value : _snapshotSaveName;
                 _snapshotSaveName = saveName;
+                Match hashMatch = Regex.Match(incoming, "\\\"sha256\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                _snapshotExpectedHash = hashMatch.Success ? hashMatch.Groups[1].Value : null;
                 string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
                 _snapshotTarget = Path.Combine(dir, saveName);
                 _snapshotTemp = _snapshotTarget + ".coop.tmp";
@@ -506,6 +510,16 @@ namespace MotorsportManagerCoop
             if (incoming != null && incoming.IndexOf("\"type\":\"save_end\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
             {
                 _snapshotFile.Close(); _snapshotFile = null;
+                string actualHash = ComputeSha256(_snapshotTemp);
+                if (!String.IsNullOrEmpty(_snapshotExpectedHash) &&
+                    !String.Equals(actualHash, _snapshotExpectedHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    _status = "Snapshot checksum mismatch";
+                    Log("resync rejected checksum expected=" + _snapshotExpectedHash + " actual=" + actualHash);
+                    try { File.Delete(_snapshotTemp); } catch { }
+                    _snapshotExpectedHash = null;
+                    return;
+                }
                 if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
                 File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
                 try
@@ -738,6 +752,18 @@ namespace MotorsportManagerCoop
         private static void WritePacket(NetworkStream stream, byte[] packet)
         { stream.Write(packet, 0, packet.Length); }
 
+        private static string ComputeSha256(string path)
+        {
+            using (var sha = SHA256.Create())
+            using (var input = File.OpenRead(path))
+            {
+                byte[] hash = sha.ComputeHash(input);
+                StringBuilder result = new StringBuilder(hash.Length * 2);
+                for (int i = 0; i < hash.Length; i++) result.Append(hash[i].ToString("x2"));
+                return result.ToString();
+            }
+        }
+
         private static void SendSaveSnapshot(NetworkStream stream)
         {
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
@@ -745,7 +771,8 @@ namespace MotorsportManagerCoop
             if (!File.Exists(path)) path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7.sav");
             if (!File.Exists(path)) return;
             byte[] all = File.ReadAllBytes(path);
-            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_begin\",\"name\":\"" + Path.GetFileName(path) + "\",\"size\":" + all.Length + "}\n"));
+            string hash = ComputeSha256(path);
+            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_begin\",\"name\":\"" + Path.GetFileName(path) + "\",\"size\":" + all.Length + ",\"sha256\":\"" + hash + "\"}\n"));
             for (int offset = 0; offset < all.Length; offset += 6144)
             {
                 int count = Math.Min(6144, all.Length - offset);
