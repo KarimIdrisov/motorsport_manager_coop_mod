@@ -6,6 +6,7 @@ $text = Get-Content -LiteralPath $LogPath -Raw -ErrorAction Stop
 $crashPatterns = @(
     'Collection was modified; enumeration operation may not execute',
     'FullSerializer.fsSerializer.TrySerialize',
+    'MotorsportManagerCoop.Main.OnPitCrewAssign',
     '[Manager] Destroying when exit.'
 )
 

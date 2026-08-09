@@ -64,6 +64,8 @@ namespace MotorsportManagerCoop
         private static bool _autoLoadRequested;
         private static float _autoLoadElapsed;
         private static bool _newCareerOpened;
+        private static object _pendingIntroScreen;
+        private static float _pendingIntroAt;
 
         private static void Log(string message)
         {
@@ -257,14 +259,10 @@ namespace MotorsportManagerCoop
         private static void OnIntroScreenStarted(object __instance)
         {
             if (!IsAutoMode()) return;
-            try
-            {
-                MethodInfo continueMethod = AccessTools.Method(__instance.GetType(), "Continue");
-                if (continueMethod == null) return;
-                continueMethod.Invoke(__instance, null);
-                Log("continued intro screen via game state machine type=" + __instance.GetType().Name);
-            }
-            catch (Exception ex) { Log("intro continue failed=" + ex.Message); }
+            Type type = __instance == null ? null : __instance.GetType();
+            if (type != typeof(AttractIntroScreen) && type != typeof(MovieScreen)) return;
+            _pendingIntroScreen = __instance;
+            _pendingIntroAt = Time.realtimeSinceStartup + 0.25f;
         }
 
         private static void OnQualityScreenEntered(QualitySelectScreen __instance)
@@ -487,14 +485,14 @@ namespace MotorsportManagerCoop
 
         private static void OnProcessTransaction(Transaction __0)
         {
-            if (__0 == null) return;
+            if (__0 == null || !_gameReady) return;
             PublishAuthoritativeSave("finance_transaction");
             Log("observed kind=finance_transaction amount=" + __0.amount + " balance=" + __0.fundsAfterTransaction + " group=" + __0.group);
         }
 
         private static void OnSponsorPayment(bool __0)
         {
-            if (!_isHost) return;
+            if (!_isHost || !_gameReady) return;
             if (__0) PublishAuthoritativeSave("sponsor_payment");
             Log("observed kind=sponsor_upfront_payment accepted=" + __0);
         }
@@ -576,26 +574,30 @@ namespace MotorsportManagerCoop
                     if (client.Connected) try { SendSaveSnapshot(client.GetStream()); } catch { }
         }
 
-        private static void OnPitCrewAssign(PitCrewMember __0, PitCrewMember __1)
+        private static void OnPitCrewAssign(PitCrewMember __0, PitCrewMember.PitCrewRole __1)
         {
+            if (!_gameReady) return;
             PublishAuthoritativeSave("pitcrew_assign");
-            Log("observed kind=pitcrew_assign members=" + (__0 == null ? "-" : __0.name) + "," + (__1 == null ? "-" : __1.name));
+            Log("observed kind=pitcrew_assign member=" + (__0 == null ? "-" : __0.name) + " role=" + __1);
         }
 
         private static void OnPitCrewSwap(PitCrewMember __0, PitCrewMember __1)
         {
+            if (!_gameReady) return;
             PublishAuthoritativeSave("pitcrew_swap");
             Log("observed kind=pitcrew_swap members=" + (__0 == null ? "-" : __0.name) + "," + (__1 == null ? "-" : __1.name));
         }
 
         private static void OnPitCrewSignup(PitCrewMember __0)
         {
+            if (!_gameReady) return;
             PublishAuthoritativeSave("pitcrew_signup");
             Log("observed kind=pitcrew_signup member=" + (__0 == null ? "-" : __0.name));
         }
 
         private static void OnPitCrewFire(PitCrewMember __0)
         {
+            if (!_gameReady) return;
             PublishAuthoritativeSave("pitcrew_fire");
             Log("observed kind=pitcrew_fire member=" + (__0 == null ? "-" : __0.name));
         }
@@ -1176,6 +1178,7 @@ namespace MotorsportManagerCoop
         private static void OnUpdate(UnityModManager.ModEntry modEntry, float deltaTime)
         {
             if (!_enabled) return;
+            ContinuePendingIntro();
             _autoLoadElapsed += deltaTime;
             EnsureSaveSystem();
             FlushAuthoritativeSave();
@@ -1206,6 +1209,21 @@ namespace MotorsportManagerCoop
             }
             catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
             finally { _applyRemoteAction = false; }
+        }
+
+        private static void ContinuePendingIntro()
+        {
+            if (_pendingIntroScreen == null || Time.realtimeSinceStartup < _pendingIntroAt) return;
+            object screen = _pendingIntroScreen;
+            _pendingIntroScreen = null;
+            try
+            {
+                MethodInfo continueMethod = AccessTools.Method(screen.GetType(), "Continue");
+                if (continueMethod == null) return;
+                continueMethod.Invoke(screen, null);
+                Log("continued intro after initialization type=" + screen.GetType().Name);
+            }
+            catch (Exception ex) { Log("intro continue failed=" + ex.Message); }
         }
 
         private static bool IsAutoMode()
