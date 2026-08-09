@@ -132,6 +132,9 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(GameTimer), "SetSpeedDontUnpause"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetSpeed)));
+            _harmony.Patch(AccessTools.Method(typeof(GameTimer), "SetSpeed"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSetSpeed)));
             _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "SetOrderedLapCount"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetOrderedLapCount)));
@@ -1100,6 +1103,11 @@ namespace MotorsportManagerCoop
             SessionStrategy targetStrategy = null;
             if (incomingTarget >= 0) _strategiesByVehicle.TryGetValue(incomingTarget, out targetStrategy);
             if (targetStrategy == null) targetStrategy = _strategy;
+            if (incoming != null && targetStrategy != null && incoming.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
+            {
+                FieldInfo aiStrategy = AccessTools.Field(typeof(SessionStrategy), "mUsesAIForStrategy");
+                if (aiStrategy != null) aiStrategy.SetValue(targetStrategy, false);
+            }
             if (incoming != null && targetStrategy != null &&
                 (incoming.IndexOf("team_orders", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0 ||
@@ -1235,7 +1243,7 @@ namespace MotorsportManagerCoop
             if (incoming != null && incoming.IndexOf("simulation_speed", StringComparison.Ordinal) >= 0 && _timer != null)
             {
                 _applyRemoteAction = true;
-                try { _timer.SetSpeedDontUnpause((GameTimer.Speed)ReadActionValue(incoming)); _status = "Applied remote simulation speed"; Log("applied remote simulation speed value=" + ReadActionValue(incoming)); }
+                try { _timer.SetSpeed((GameTimer.Speed)ReadActionValue(incoming)); _status = "Applied remote simulation speed"; Log("applied remote simulation speed value=" + ReadActionValue(incoming)); }
                 catch (Exception ex) { _status = "Remote speed failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
@@ -1313,6 +1321,7 @@ namespace MotorsportManagerCoop
                 Log("telemetry heartbeat runtime=" + _raceRuntimeReady + " vehicles=" + _strategiesByVehicle.Count + " clients=" + _hostClients.Count);
             }
             EnsureSaveSystem();
+            if (_timer == null && Game.instance != null) _timer = ReadObject(Game.instance, "time", "mTime") as GameTimer;
             FlushAuthoritativeSave();
             if (!_autoLoadRequested && _autoLoadElapsed >= 5f && _isHost && !IsNewCareerMode() && _saveSystem != null)
             {
@@ -1543,11 +1552,32 @@ namespace MotorsportManagerCoop
                     json.Append(",\"position\":").Append((int)ReadNumber(vehicle, "position", "racePosition", "mRacePosition"));
                     json.Append(",\"fuel\":").Append(ReadNumber(fuel, "fuelLapDistance", "fuelLaps", "mFuelLapDistance").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     json.Append(",\"tyreWear\":").Append(ReadNumber(vehicle, "tyreWear", "mTyreWear").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyres\":[");
+                    bool firstTyre = true;
+                    for (int tyreOption = 0; tyreOption < 5; tyreOption++)
+                    {
+                        int tyreCount = pair.Value.GetTyreCount((SessionStrategy.TyreOption)tyreOption);
+                        for (int tyreIndex = 0; tyreIndex < tyreCount; tyreIndex++)
+                        {
+                            TyreSet tyre = pair.Value.GetTyre((SessionStrategy.TyreOption)tyreOption, tyreIndex);
+                            if (!firstTyre) json.Append(',');
+                            firstTyre = false;
+                            json.Append("{\"option\":").Append(tyreOption).Append(",\"index\":").Append(tyreIndex);
+                            json.Append(",\"name\":\"").Append(JsonEscape(ReadText(tyre, "compound", "mCompound"))).Append("\"}");
+                        }
+                    }
+                    json.Append(']');
                     SessionSetup sessionSetup;
                     json.Append(",\"setup\":[");
                     if (_setupsByVehicle.TryGetValue(pair.Key, out sessionSetup))
                     {
                         SetupDetails details = ReadObject(sessionSetup, "targetSetup", "mTargetSetup") as SetupDetails;
+                        SetupDetails currentDetails = ReadObject(sessionSetup, "currentSetup", "mCurrentSetup") as SetupDetails;
+                        bool targetHasValues = false;
+                        if (details != null && details.input != null)
+                            for (int check = 0; check < 7; check++)
+                                if (Math.Abs(details.input.GetSetupValue((SetupInput_v1.SetupInputOptions)check)) > 0.0001f) { targetHasValues = true; break; }
+                        if (!targetHasValues && currentDetails != null && currentDetails.input != null) details = currentDetails;
                         for (int option = 0; option < 7; option++)
                         {
                             if (option > 0) json.Append(',');
@@ -1556,7 +1586,7 @@ namespace MotorsportManagerCoop
                         }
                     }
                     json.Append(']');
-                    json.Append(",\"status\":\"").Append(JsonEscape(ReadText(vehicle, "currentState", "mCurrentState"))).Append("\"}");
+                    json.Append(",\"status\":\"").Append(JsonEscape(ReadText(pair.Value, "status", "mStatus"))).Append("\"}");
                 }
                 json.Append("]}\n");
                 return Encoding.UTF8.GetBytes(json.ToString());

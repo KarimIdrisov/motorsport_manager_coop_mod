@@ -4,7 +4,12 @@ using System.Text.Json;
 
 namespace MotorsportManagerCoopLauncher;
 
-internal sealed record VehicleTelemetry(int Id, string Driver, int Lap, int Position, double Fuel, double TyreWear, string Status, double[]? Setup = null)
+internal sealed record TyreChoice(int Option, int Index, string Name)
+{
+    public override string ToString() => $"{(string.IsNullOrWhiteSpace(Name) ? "Комплект" : Name)} #{Index + 1}";
+}
+
+internal sealed record VehicleTelemetry(int Id, string Driver, int Lap, int Position, double Fuel, double TyreWear, string Status, double[]? Setup = null, List<TyreChoice>? Tyres = null)
 {
     public override string ToString() => string.IsNullOrWhiteSpace(Driver) ? $"Машина {Id}" : $"{Driver} (#{Id})";
 }
