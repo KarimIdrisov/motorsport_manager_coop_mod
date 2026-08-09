@@ -32,6 +32,7 @@ namespace MotorsportManagerCoop
         private static readonly object _incomingLock = new object();
         private static bool _applyRemoteAction;
         private static bool _isHost;
+        private static int _lastRevision;
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
@@ -168,6 +169,13 @@ namespace MotorsportManagerCoop
             return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : 0;
         }
 
+        private static int ReadRevision(string json)
+        {
+            Match match = Regex.Match(json, "\\\"revision\\\"\\s*:\\s*(\\d+)");
+            int value;
+            return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : 0;
+        }
+
         private static void OnGoToNextSession()
         {
             if (_applyRemoteAction || (_stream == null && !_isHost)) return;
@@ -206,6 +214,16 @@ namespace MotorsportManagerCoop
                 _status = "Host changed; reconnect required for role refresh";
             if (incoming != null && incoming.IndexOf("action_ack", StringComparison.Ordinal) >= 0)
                 _status = "Host confirmed action";
+            if (incoming != null && incoming.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
+            {
+                int revision = ReadRevision(incoming);
+                if (revision > 0)
+                {
+                    if (_lastRevision > 0 && revision != _lastRevision + 1)
+                        _status = "Resync required: missed revision " + _lastRevision + " -> " + revision;
+                    _lastRevision = Math.Max(_lastRevision, revision);
+                }
+            }
             if (incoming != null && _timer != null &&
                 (incoming.IndexOf("play_skip_sim", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pause_or_play", StringComparison.Ordinal) >= 0))
