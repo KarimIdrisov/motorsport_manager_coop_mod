@@ -117,6 +117,8 @@ namespace MotorsportManagerCoop
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnLoadToRaceEvent)));
             _harmony.Patch(AccessTools.Method(typeof(SessionManager), "StartSession"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnRaceRuntimeReady)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "Start"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SessionStrategy), "SetTeamOrders"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
@@ -126,6 +128,7 @@ namespace MotorsportManagerCoop
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetPitStrategy)));
             _harmony.Patch(AccessTools.Method(typeof(GameTimer), "SetSpeedDontUnpause"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetSpeed)));
             _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "SetOrderedLapCount"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),

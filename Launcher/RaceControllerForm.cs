@@ -75,8 +75,8 @@ internal sealed class RaceControllerForm : Form
             while (!token.IsCancellationRequested)
             {
                 string? line = await reader.ReadLineAsync(token); if (line == null) break;
-                using JsonDocument json = JsonDocument.Parse(line);
-                if (json.RootElement.TryGetProperty("type", out var type) && type.GetString() == "telemetry") BeginInvoke(() => ApplyTelemetry(json.RootElement.Clone()));
+                JsonElement? telemetry = TelemetryJson.Parse(line);
+                if (telemetry.HasValue) BeginInvoke(() => ApplyTelemetry(telemetry.Value));
             }
         }
         catch (Exception ex) when (!token.IsCancellationRequested) { BeginInvoke(() => _connection.Text = "Связь потеряна: " + ex.Message); }
