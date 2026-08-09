@@ -339,7 +339,10 @@ namespace MotorsportManagerCoop
                         if (line.IndexOf("\"type\":\"hello\"", StringComparison.Ordinal) >= 0)
                             WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"welcome\",\"protocol\":0,\"role\":\"client\"}\n"));
                         else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
+                        {
+                            lock (_incomingLock) _incoming.Enqueue(line);
                             Broadcast(Encoding.UTF8.GetBytes(line + "\n"), client);
+                        }
                     }
                     text.Length = 0; text.Append(all);
                 }
