@@ -32,8 +32,8 @@ internal sealed class RaceControllerForm : Form
         var connect = new Button { Text = "Подключиться к Host", AutoSize = true }; connect.Click += async (_, _) => await ConnectAsync();
         root.Controls.Add(Row(connect, _connection)); root.Controls.Add(_session);
         root.Controls.Add(Row(new Label { Text = "Пилот:", AutoSize = true }, _driver)); root.Controls.Add(_telemetry);
-        root.Controls.Add(Group("Темп", Commands(("Беречь", "driving_style", 0), ("Спокойно", "driving_style", 1), ("Нормально", "driving_style", 2), ("Атака", "driving_style", 3), ("Максимум", "driving_style", 4))));
-        root.Controls.Add(Group("Двигатель", Commands(("Низкий", "engine_mode", 0), ("Средний", "engine_mode", 1), ("Высокий", "engine_mode", 2), ("Обгон", "engine_mode", 3))));
+        root.Controls.Add(Group("Темп", Commands(("Атака", "driving_style", 0), ("Push", "driving_style", 1), ("Нормально", "driving_style", 2), ("Беречь", "driving_style", 3), ("Отступать", "driving_style", 4))));
+        root.Controls.Add(Group("Двигатель", Commands(("Супер-обгон", "engine_mode", 0), ("Обгон", "engine_mode", 1), ("Высокий", "engine_mode", 2), ("Средний", "engine_mode", 3), ("Низкий", "engine_mode", 4))));
         root.Controls.Add(Group("ERS", Commands(("Сохранение", "ers_mode", 0), ("Гибрид", "ers_mode", 1), ("Атака", "ers_mode", 2))));
         var track = Commands(("На трассу", "send_out_on_track", 0), ("В гараж", "return_to_garage", 0), ("Пит-стоп", "pit_command", 0), ("Отменить пит", "cancel_pit", 0));
         track.Controls.Add(new Label { Text = "Топливо:", AutoSize = true, Padding = new Padding(8, 7, 0, 0) }); track.Controls.Add(_fuel);

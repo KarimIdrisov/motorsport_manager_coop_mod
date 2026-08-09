@@ -76,6 +76,7 @@ namespace MotorsportManagerCoop
         private static bool _movieIntroContinued;
         private static bool _raceRuntimeReady;
         private static float _telemetryElapsed;
+        private static float _telemetryLogElapsed;
 
         private static void Log(string message)
         {
@@ -410,6 +411,9 @@ namespace MotorsportManagerCoop
                 Fuel fuel = fuelField == null ? null : fuelField.GetValue(performance) as Fuel;
                 if (driving != null) _drivingStylesByVehicle[vehicleId] = driving;
                 if (fuel != null) _fuelByVehicle[vehicleId] = fuel;
+                object setup = ReadObject(vehicle, "setup", "mSetup");
+                SessionPitstop pitstop = ReadObject(setup, "mSessionPitStop", "sessionPitStop") as SessionPitstop;
+                if (pitstop != null) _pitstopsByVehicle[vehicleId] = pitstop;
             }
             catch { }
         }
@@ -1056,8 +1060,9 @@ namespace MotorsportManagerCoop
                     else
                         _timer.PlaySkipSim();
                     _status = "Applied remote simulation command";
+                    Log("applied remote simulation command");
                 }
-                catch (Exception ex) { _status = "Remote action failed: " + ex.Message; }
+                catch (Exception ex) { _status = "Remote action failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("go_next_session", StringComparison.Ordinal) >= 0 && _raceEvent != null)
@@ -1126,8 +1131,9 @@ namespace MotorsportManagerCoop
                     else
                         targetStrategy.RemoveQueuedOrder();
                     _status = "Applied remote race strategy vehicle=" + incomingTarget;
+                    Log("applied remote race strategy vehicle=" + incomingTarget);
                 }
-                catch (Exception ex) { _status = "Remote strategy failed: " + ex.Message; }
+                catch (Exception ex) { _status = "Remote strategy failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null &&
@@ -1199,8 +1205,8 @@ namespace MotorsportManagerCoop
             if (incoming != null && incoming.IndexOf("simulation_speed", StringComparison.Ordinal) >= 0 && _timer != null)
             {
                 _applyRemoteAction = true;
-                try { _timer.SetSpeedDontUnpause((GameTimer.Speed)ReadActionValue(incoming)); _status = "Applied remote simulation speed"; }
-                catch (Exception ex) { _status = "Remote speed failed: " + ex.Message; }
+                try { _timer.SetSpeedDontUnpause((GameTimer.Speed)ReadActionValue(incoming)); _status = "Applied remote simulation speed"; Log("applied remote simulation speed value=" + ReadActionValue(incoming)); }
+                catch (Exception ex) { _status = "Remote speed failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && _carDesign != null &&
@@ -1265,10 +1271,16 @@ namespace MotorsportManagerCoop
             if (!_enabled) return;
             _autoLoadElapsed += deltaTime;
             _telemetryElapsed += deltaTime;
+            _telemetryLogElapsed += deltaTime;
             if (_isHost && _telemetryElapsed >= 0.5f)
             {
                 _telemetryElapsed = 0f;
                 BroadcastTelemetry();
+            }
+            if (_isHost && _telemetryLogElapsed >= 10f)
+            {
+                _telemetryLogElapsed = 0f;
+                Log("telemetry heartbeat runtime=" + _raceRuntimeReady + " vehicles=" + _strategiesByVehicle.Count + " clients=" + _hostClients.Count);
             }
             EnsureSaveSystem();
             FlushAuthoritativeSave();
