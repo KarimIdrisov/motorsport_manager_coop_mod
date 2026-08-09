@@ -232,6 +232,8 @@ namespace MotorsportManagerCoop
             string autoRole = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
             if (String.Equals(autoRole, "host", StringComparison.OrdinalIgnoreCase))
             {
+                string newestSave = FindNewestSavePath();
+                if (!String.IsNullOrEmpty(newestSave)) _snapshotSaveName = Path.GetFileName(newestSave);
                 StartHost();
             }
             else if (String.Equals(autoRole, "client", StringComparison.OrdinalIgnoreCase))
@@ -1197,7 +1199,7 @@ namespace MotorsportManagerCoop
             _autoLoadElapsed += deltaTime;
             EnsureSaveSystem();
             FlushAuthoritativeSave();
-            if (!_autoLoadRequested && _autoLoadElapsed >= 5f && IsAutoMode() && !IsNewCareerMode() && _saveSystem != null)
+            if (!_autoLoadRequested && _autoLoadElapsed >= 5f && _isHost && !IsNewCareerMode() && _saveSystem != null)
             {
                 _autoLoadRequested = true;
                 try
@@ -1405,12 +1407,30 @@ namespace MotorsportManagerCoop
             return Path.Combine(Path.Combine(Path.Combine(Path.Combine(localLow, "Playsport Games"), "Motorsport Manager"), "Cloud"), "Saves");
         }
 
+        private static string FindNewestSavePath()
+        {
+            string dir = SaveDirectory();
+            if (!Directory.Exists(dir)) return null;
+            string newest = null;
+            DateTime newestTime = DateTime.MinValue;
+            foreach (string candidate in Directory.GetFiles(dir, "*.sav"))
+            {
+                DateTime time;
+                try { time = File.GetLastWriteTimeUtc(candidate); }
+                catch { continue; }
+                if (time <= newestTime) continue;
+                newest = candidate;
+                newestTime = time;
+            }
+            return newest;
+        }
+
         private static void SendSaveSnapshot(NetworkStream stream)
         {
             string dir = SaveDirectory();
-            string path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7 Coop.sav");
-            if (!File.Exists(path)) path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7.sav");
+            string path = FindNewestSavePath();
             if (!File.Exists(path)) { Log("resync snapshot unavailable path=" + path); return; }
+            _snapshotSaveName = Path.GetFileName(path);
             Log("sending resync snapshot path=" + path);
             byte[] all = File.ReadAllBytes(path);
             string hash = ComputeSha256(path);
