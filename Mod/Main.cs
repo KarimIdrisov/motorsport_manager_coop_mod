@@ -27,6 +27,7 @@ namespace MotorsportManagerCoop
         private static GameTimer _timer;
         private static RaceEventDetails _raceEvent;
         private static SessionStrategy _strategy;
+        private static CarPartDesign _carDesign;
         private static SaveSystem _saveSystem;
         private static Thread _receiveThread;
         private static readonly Queue<string> _incoming = new Queue<string>();
@@ -82,6 +83,12 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "SetOrderedLapCount"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetOrderedLapCount)));
+            _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "StartDesigning"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnStartDesigning)));
+            _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "BuildTwoParts"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnBuildTwoParts)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
@@ -132,6 +139,23 @@ namespace MotorsportManagerCoop
         private static void CaptureStrategy(SessionStrategy __instance)
         {
             _strategy = __instance;
+        }
+
+        private static void CaptureCarDesign(CarPartDesign __instance)
+        {
+            _carDesign = __instance;
+        }
+
+        private static void OnStartDesigning()
+        {
+            SendStrategyAction("car_design_start", 0);
+            Log("observed kind=car_design_start");
+        }
+
+        private static void OnBuildTwoParts(int __0)
+        {
+            SendStrategyAction("car_build_two_parts", __0);
+            Log("observed kind=car_build_two_parts value=" + __0);
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
@@ -341,6 +365,22 @@ namespace MotorsportManagerCoop
                 _applyRemoteAction = true;
                 try { _timer.SetSpeedDontUnpause((GameTimer.Speed)ReadActionValue(incoming)); _status = "Applied remote simulation speed"; }
                 catch (Exception ex) { _status = "Remote speed failed: " + ex.Message; }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null && _carDesign != null &&
+                (incoming.IndexOf("car_design_start", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("car_build_two_parts", StringComparison.Ordinal) >= 0))
+            {
+                _applyRemoteAction = true;
+                try
+                {
+                    if (incoming.IndexOf("car_design_start", StringComparison.Ordinal) >= 0)
+                        _carDesign.StartDesigning();
+                    else
+                        _carDesign.BuildTwoParts(ReadActionValue(incoming));
+                    _status = "Applied remote car design action";
+                }
+                catch (Exception ex) { _status = "Remote car design failed: " + ex.Message; }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("manual_save", StringComparison.Ordinal) >= 0 && _saveSystem != null)
