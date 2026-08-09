@@ -63,6 +63,7 @@ namespace MotorsportManagerCoop
             Log("load version=0.1.0");
             modEntry.OnGUI = OnGUI;
             modEntry.OnFixedGUI = OnGUI;
+            modEntry.OnUpdate = OnUpdate;
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
@@ -654,6 +655,25 @@ namespace MotorsportManagerCoop
             if (GUILayout.Button("Disconnect")) Disconnect();
             GUILayout.EndHorizontal();
             GUILayout.EndVertical();
+        }
+
+        private static void OnUpdate(UnityModManager.ModEntry modEntry, float deltaTime)
+        {
+            if (!_enabled || !_snapshotReady) return;
+            EnsureSaveSystem();
+            if (_saveSystem == null) return;
+            _snapshotReady = false;
+            try
+            {
+                _applyRemoteAction = true;
+                var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
+                if (method == null) throw new MissingMethodException("SaveSystem.LoadSaveWithName");
+                method.Invoke(_saveSystem, new object[] { Path.GetFileNameWithoutExtension(_snapshotSaveName) });
+                _status = "Host save received and load requested";
+                Log("received save snapshot name=" + _snapshotSaveName);
+            }
+            catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
+            finally { _applyRemoteAction = false; }
         }
 
         private static void Connect()
