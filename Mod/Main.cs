@@ -4,6 +4,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityModManagerNet;
@@ -33,6 +34,9 @@ namespace MotorsportManagerCoop
         private static bool _applyRemoteAction;
         private static bool _isHost;
         private static int _lastRevision;
+        private static FileStream _snapshotFile;
+        private static string _snapshotTemp;
+        private static string _snapshotTarget;
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
@@ -233,6 +237,28 @@ namespace MotorsportManagerCoop
                 _lastRevision = ReadRevision(incoming);
                 _status = "Resync complete at revision " + _lastRevision;
             }
+            if (incoming != null && incoming.IndexOf("\"type\":\"save_begin\"", StringComparison.Ordinal) >= 0)
+            {
+                string saveName = "SaveJohn Sina - Scuderia Rossini 7.sav";
+                string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
+                _snapshotTarget = Path.Combine(dir, saveName);
+                _snapshotTemp = _snapshotTarget + ".coop.tmp";
+                Directory.CreateDirectory(dir);
+                _snapshotFile = new FileStream(_snapshotTemp, FileMode.Create, FileAccess.Write, FileShare.None);
+                _status = "Receiving host save...";
+            }
+            if (incoming != null && incoming.IndexOf("\"type\":\"save_chunk\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
+            {
+                Match chunk = Regex.Match(incoming, "\\\"data\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+                if (chunk.Success) { byte[] data = Convert.FromBase64String(chunk.Groups[1].Value); _snapshotFile.Write(data, 0, data.Length); }
+            }
+            if (incoming != null && incoming.IndexOf("\"type\":\"save_end\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
+            {
+                _snapshotFile.Close(); _snapshotFile = null;
+                if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
+                File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
+                _status = "Host save received; restart career to load it";
+            }
             if (incoming != null && _timer != null &&
                 (incoming.IndexOf("play_skip_sim", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pause_or_play", StringComparison.Ordinal) >= 0))
@@ -367,8 +393,11 @@ namespace MotorsportManagerCoop
                         if (line.IndexOf("\"type\":\"hello\"", StringComparison.Ordinal) >= 0)
                             WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"welcome\",\"protocol\":0,\"role\":\"client\"}\n"));
                         else if (line.IndexOf("\"type\":\"resync_request\"", StringComparison.Ordinal) >= 0)
+                        {
                             WritePacket(stream, Encoding.UTF8.GetBytes(
                                 "{\"type\":\"resync_snapshot\",\"revision\":" + _hostRevision + "}\n"));
+                            SendSaveSnapshot(stream);
+                        }
                         else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
                         {
                             int revision = Interlocked.Increment(ref _hostRevision);
@@ -402,6 +431,21 @@ namespace MotorsportManagerCoop
 
         private static void WritePacket(NetworkStream stream, byte[] packet)
         { stream.Write(packet, 0, packet.Length); }
+
+        private static void SendSaveSnapshot(NetworkStream stream)
+        {
+            string path = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves\\SaveJohn Sina - Scuderia Rossini 7.sav";
+            if (!File.Exists(path)) return;
+            byte[] all = File.ReadAllBytes(path);
+            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_begin\",\"size\":" + all.Length + "}\n"));
+            for (int offset = 0; offset < all.Length; offset += 6144)
+            {
+                int count = Math.Min(6144, all.Length - offset);
+                string data = Convert.ToBase64String(all, offset, count);
+                WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_chunk\",\"data\":\"" + data + "\"}\n"));
+            }
+            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"save_end\"}\n"));
+        }
 
         private static void ReceiveLoop()
         {
