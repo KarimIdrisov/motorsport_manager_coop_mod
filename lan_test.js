@@ -47,12 +47,17 @@ async function main() {
   if (!host.messages.some(m => m.type === 'action_ack' && m.revision === 1)) throw new Error('missing host ack');
   if (!guest.messages.some(m => m.type === 'action' && m.kind === 'play_skip_sim')) throw new Error('missing guest broadcast');
 
+  host.socket.write(JSON.stringify({ type: 'action', id: 'race1', kind: 'pit_tyres', target: 42, value: 2, aux: 1, flag: 1 }) + '\n');
+  await wait(100);
+  if (!guest.messages.some(m => m.type === 'action' && m.kind === 'pit_tyres' && m.target === 42 && m.value === 2 && m.aux === 1 && m.flag === 1))
+    throw new Error('race target payload was not preserved');
+
   guest.socket.write(JSON.stringify({ type: 'action', id: 'save1', kind: 'manual_save' }) + '\n');
   await wait(100);
   if (!guest.messages.some(m => m.type === 'error' && m.message === 'Only host may save')) throw new Error('guest save was not rejected');
 
   host.socket.destroy(); guest.socket.destroy(); server.kill();
-  console.log('LAN TEST PASS: roles, revision ack, broadcast, host-only save');
+  console.log('LAN TEST PASS: roles, revisions, targeted race payload, host-only save');
 }
 
 main().catch(error => {

@@ -53,6 +53,7 @@ namespace MotorsportManagerCoop
         private static readonly Dictionary<int, DrivingStyle> _drivingStylesByVehicle = new Dictionary<int, DrivingStyle>();
         private static readonly Dictionary<int, Fuel> _fuelByVehicle = new Dictionary<int, Fuel>();
         private static readonly Dictionary<int, ERSController> _ersByVehicle = new Dictionary<int, ERSController>();
+        private static readonly Dictionary<int, SessionPitstop> _pitstopsByVehicle = new Dictionary<int, SessionPitstop>();
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
         private static bool _autoLoadRequested;
@@ -127,6 +128,16 @@ namespace MotorsportManagerCoop
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnEngineModeChanged)));
             _harmony.Patch(AccessTools.Method(typeof(ERSController), "SetERSMode"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnERSModeChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionPitstop), "SetTargetFuelLevel"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitFuelChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionPitstop), "SetRepairParts"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitRepairChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionPitstop), "SetTargetBatteryCharge"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitBatteryChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionPitstop), "SetTargetTyres"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitTyresChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionPitstop), "ResetPitStopSetup"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CapturePitstop)));
             _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "StartDesigning"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnStartDesigning)));
@@ -664,6 +675,48 @@ namespace MotorsportManagerCoop
             SendRaceAction("ers_mode", vehicleId, (int)__0);
         }
 
+        private static void CapturePitstop(SessionPitstop __instance)
+        {
+            int vehicleId = VehicleIdFromComponent(__instance);
+            if (vehicleId >= 0) _pitstopsByVehicle[vehicleId] = __instance;
+        }
+
+        private static void OnPitFuelChanged(SessionPitstop __instance, int __0)
+        {
+            CapturePitstop(__instance);
+            SendRaceAction("pit_fuel", VehicleIdFromComponent(__instance), __0);
+        }
+
+        private static void OnPitRepairChanged(SessionPitstop __instance)
+        {
+            CapturePitstop(__instance);
+            SendRaceAction("pit_repair", VehicleIdFromComponent(__instance), 1);
+        }
+
+        private static void OnPitBatteryChanged(SessionPitstop __instance, float __0, float __1)
+        {
+            CapturePitstop(__instance);
+            SendRaceAction("pit_battery", VehicleIdFromComponent(__instance), Mathf.RoundToInt(__0 * 1000f), Mathf.RoundToInt(__1 * 1000f));
+        }
+
+        private static void OnPitTyresChanged(SessionPitstop __instance, TyreSet __0, bool __1)
+        {
+            CapturePitstop(__instance);
+            RacingVehicle vehicle = VehicleFromComponent(__instance);
+            if (vehicle == null || vehicle.strategy == null || __0 == null) return;
+            foreach (SessionStrategy.TyreOption option in Enum.GetValues(typeof(SessionStrategy.TyreOption)))
+            {
+                int count = vehicle.strategy.GetTyreCount(option);
+                for (int index = 0; index < count; index++)
+                {
+                    if (!System.Object.ReferenceEquals(vehicle.strategy.GetTyre(option, index), __0)) continue;
+                    SendRaceAction("pit_tyres", vehicle.id, (int)option, index, __1 ? 1 : 0);
+                    return;
+                }
+            }
+            Log("pit tyre target not found vehicle=" + vehicle.id);
+        }
+
         private static void OnSendOutOnTrack() { SendStrategyAction("send_out_on_track", 0); }
         private static void OnReturnToGarage() { SendStrategyAction("return_to_garage", 0); }
         private static void OnPitCommand() { SendStrategyAction("pit_command", 0); }
@@ -678,11 +731,21 @@ namespace MotorsportManagerCoop
 
         private static void SendRaceAction(string kind, int vehicleId, int value)
         {
+            SendRaceAction(kind, vehicleId, value, 0, 0);
+        }
+
+        private static void SendRaceAction(string kind, int vehicleId, int value, int aux)
+        {
+            SendRaceAction(kind, vehicleId, value, aux, 0);
+        }
+
+        private static void SendRaceAction(string kind, int vehicleId, int value, int aux, int flag)
+        {
             if (_applyRemoteAction || (_stream == null && !_isHost)) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
-                    "{\"type\":\"action\",\"kind\":\"" + kind + "\",\"target\":" + vehicleId + ",\"value\":" + value + "}\n");
+                    "{\"type\":\"action\",\"kind\":\"" + kind + "\",\"target\":" + vehicleId + ",\"value\":" + value + ",\"aux\":" + aux + ",\"flag\":" + flag + "}\n");
                 SendPacket(action);
                 _status = "Sent: " + kind + " vehicle=" + vehicleId;
                 Log("sent race action kind=" + kind + " vehicle=" + vehicleId + " value=" + value);
@@ -702,6 +765,13 @@ namespace MotorsportManagerCoop
             Match match = Regex.Match(json, "\\\"target\\\"\\s*:\\s*(-?\\d+)");
             int value;
             return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : -1;
+        }
+
+        private static int ReadActionInt(string json, string field, int fallback)
+        {
+            Match match = Regex.Match(json, "\\\"" + Regex.Escape(field) + "\\\"\\s*:\\s*(-?\\d+)");
+            int value;
+            return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : fallback;
         }
 
         private static int ReadRevision(string json)
@@ -927,6 +997,39 @@ namespace MotorsportManagerCoop
                     Log("applied remote driving mode vehicle=" + incomingTarget + " value=" + value);
                 }
                 catch (Exception ex) { _status = "Remote driving mode failed: " + ex.Message; Log(_status); }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null &&
+                (incoming.IndexOf("pit_fuel", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("pit_repair", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("pit_battery", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("pit_tyres", StringComparison.Ordinal) >= 0))
+            {
+                _applyRemoteAction = true;
+                try
+                {
+                    SessionPitstop pitstop;
+                    if (!_pitstopsByVehicle.TryGetValue(incomingTarget, out pitstop)) throw new InvalidOperationException("Pitstop target unavailable");
+                    int value = ReadActionValue(incoming);
+                    int aux = ReadActionInt(incoming, "aux", 0);
+                    if (incoming.IndexOf("pit_fuel", StringComparison.Ordinal) >= 0)
+                        pitstop.SetTargetFuelLevel(value);
+                    else if (incoming.IndexOf("pit_repair", StringComparison.Ordinal) >= 0)
+                        pitstop.SetRepairParts();
+                    else if (incoming.IndexOf("pit_battery", StringComparison.Ordinal) >= 0)
+                        pitstop.SetTargetBatteryCharge(value / 1000f, aux / 1000f);
+                    else
+                    {
+                        SessionStrategy strategy;
+                        if (!_strategiesByVehicle.TryGetValue(incomingTarget, out strategy)) throw new InvalidOperationException("Tyre strategy target unavailable");
+                        TyreSet tyre = strategy.GetTyre((SessionStrategy.TyreOption)value, aux);
+                        if (tyre == null) throw new InvalidOperationException("Tyre target unavailable");
+                        pitstop.SetTargetTyres(tyre, ReadActionInt(incoming, "flag", 0) != 0);
+                    }
+                    _status = "Applied remote pit setup vehicle=" + incomingTarget;
+                    Log("applied remote pit setup vehicle=" + incomingTarget);
+                }
+                catch (Exception ex) { _status = "Remote pit setup failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("simulation_speed", StringComparison.Ordinal) >= 0 && _timer != null)
