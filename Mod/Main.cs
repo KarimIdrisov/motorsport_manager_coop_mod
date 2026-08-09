@@ -495,7 +495,7 @@ namespace MotorsportManagerCoop
                 _snapshotSaveName = saveName;
                 Match hashMatch = Regex.Match(incoming, "\\\"sha256\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
                 _snapshotExpectedHash = hashMatch.Success ? hashMatch.Groups[1].Value : null;
-                string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
+                string dir = SaveDirectory();
                 _snapshotTarget = Path.Combine(dir, saveName);
                 _snapshotTemp = _snapshotTarget + ".coop.tmp";
                 Directory.CreateDirectory(dir);
@@ -771,9 +771,16 @@ namespace MotorsportManagerCoop
             }
         }
 
+        private static string SaveDirectory()
+        {
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string localLow = Path.Combine(Directory.GetParent(local).FullName, "LocalLow");
+            return Path.Combine(Path.Combine(Path.Combine(Path.Combine(localLow, "Playsport Games"), "Motorsport Manager"), "Cloud"), "Saves");
+        }
+
         private static void SendSaveSnapshot(NetworkStream stream)
         {
-            string dir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "\\Low\\Playsport Games\\Motorsport Manager\\Cloud\\Saves";
+            string dir = SaveDirectory();
             string path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7 Coop.sav");
             if (!File.Exists(path)) path = Path.Combine(dir, "SaveJohn Sina - Scuderia Rossini 7.sav");
             if (!File.Exists(path)) { Log("resync snapshot unavailable path=" + path); return; }
