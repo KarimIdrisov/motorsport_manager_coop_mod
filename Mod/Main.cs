@@ -42,6 +42,7 @@ namespace MotorsportManagerCoop
         private static string _snapshotTarget;
         private static string _snapshotSaveName = "SaveJohn Sina - Scuderia Rossini 7 Coop.sav";
         private static string _snapshotExpectedHash;
+        private static bool _snapshotReady;
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
@@ -61,6 +62,7 @@ namespace MotorsportManagerCoop
             _enabled = true;
             Log("load version=0.1.0");
             modEntry.OnGUI = OnGUI;
+            modEntry.OnFixedGUI = OnGUI;
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
@@ -451,6 +453,20 @@ namespace MotorsportManagerCoop
         {
             if (!_enabled) return;
             EnsureSaveSystem();
+            if (_snapshotReady && _saveSystem != null)
+            {
+                _snapshotReady = false;
+                try
+                {
+                    _applyRemoteAction = true;
+                    var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
+                    if (method != null) method.Invoke(_saveSystem, new object[] { Path.GetFileNameWithoutExtension(_snapshotSaveName) });
+                    _status = "Host save received and load requested";
+                    Log("received save snapshot name=" + _snapshotSaveName);
+                }
+                catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
+                finally { _applyRemoteAction = false; }
+            }
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("LAN Coop", GUILayout.Width(100))) _window = !_window;
             GUILayout.Label(_status, GUILayout.Width(220));
@@ -520,8 +536,10 @@ namespace MotorsportManagerCoop
                     _snapshotExpectedHash = null;
                     return;
                 }
+                Log("resync checksum verified sha256=" + actualHash);
                 if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
                 File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
+                Log("resync file replaced target=" + _snapshotTarget);
                 try
                 {
                     var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
@@ -814,7 +832,13 @@ namespace MotorsportManagerCoop
                     {
                         string line = all.Substring(0, end).Trim();
                         all = all.Substring(end + 1);
-                        if (line.Length > 0)
+                        if (line.Length > 0 && (line.IndexOf("\"type\":\"save_begin\"", StringComparison.Ordinal) >= 0 ||
+                            line.IndexOf("\"type\":\"save_chunk\"", StringComparison.Ordinal) >= 0 ||
+                            line.IndexOf("\"type\":\"save_end\"", StringComparison.Ordinal) >= 0))
+                        {
+                            ProcessSnapshotPacket(line);
+                        }
+                        else if (line.Length > 0)
                         {
                             Log("network packet received=" + line.Substring(0, Math.Min(line.Length, 96)));
                             lock (_incomingLock) _incoming.Enqueue(line);
@@ -825,6 +849,47 @@ namespace MotorsportManagerCoop
                 }
             }
             catch { }
+        }
+
+        private static void ProcessSnapshotPacket(string incoming)
+        {
+            try
+            {
+                if (incoming.IndexOf("\"type\":\"save_begin\"", StringComparison.Ordinal) >= 0)
+                {
+                    Match nameMatch = Regex.Match(incoming, "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                    Match hashMatch = Regex.Match(incoming, "\\\"sha256\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                    _snapshotSaveName = nameMatch.Success ? nameMatch.Groups[1].Value : _snapshotSaveName;
+                    _snapshotExpectedHash = hashMatch.Success ? hashMatch.Groups[1].Value : null;
+                    string dir = SaveDirectory();
+                    Directory.CreateDirectory(dir);
+                    _snapshotTarget = Path.Combine(dir, _snapshotSaveName);
+                    _snapshotTemp = _snapshotTarget + ".coop.tmp";
+                    if (_snapshotFile != null) _snapshotFile.Close();
+                    _snapshotFile = new FileStream(_snapshotTemp, FileMode.Create, FileAccess.Write, FileShare.None);
+                }
+                else if (incoming.IndexOf("\"type\":\"save_chunk\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
+                {
+                    Match chunk = Regex.Match(incoming, "\\\"data\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+                    if (chunk.Success) { byte[] data = Convert.FromBase64String(chunk.Groups[1].Value); _snapshotFile.Write(data, 0, data.Length); }
+                }
+                else if (incoming.IndexOf("\"type\":\"save_end\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
+                {
+                    _snapshotFile.Close(); _snapshotFile = null;
+                    string actualHash = ComputeSha256(_snapshotTemp);
+                    if (!String.IsNullOrEmpty(_snapshotExpectedHash) && !String.Equals(actualHash, _snapshotExpectedHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log("resync rejected checksum expected=" + _snapshotExpectedHash + " actual=" + actualHash);
+                        File.Delete(_snapshotTemp); return;
+                    }
+                    Log("resync checksum verified sha256=" + actualHash);
+                    if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
+                    File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
+                    Log("resync file replaced target=" + _snapshotTarget);
+                    _snapshotReady = true;
+                }
+            }
+            catch (Exception ex) { Log("snapshot receive failed=" + ex.Message); }
         }
 
         private static void Disconnect()
