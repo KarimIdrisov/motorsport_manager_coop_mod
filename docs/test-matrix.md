@@ -40,3 +40,18 @@ authoritative save without a host-approved snapshot.
 - Race results and post-race finance are identical.
 - A resync creates a backup before replacing a client save.
 - The game remains playable after client disconnect/reconnect.
+
+## Discovered integration points
+
+The Mono assembly exposes these useful state boundaries:
+
+- Time: `GameTimer.PlaySkipSim`, `GameTimer.PauseOrPlaySkipSim`, `GameTimer.SetSpeedDontUnpause`.
+- Sessions: `RaceEventDetails.GoToNextSession`, `Championship.GoToNextSession`, `SessionSimulation.SimulateNextSession`.
+- Race strategy: `SessionStrategy.SetTeamOrders`, `SessionStrategy.SetPitStrategy`, `SessionStrategy.ActivateOrder`, `SessionStrategy.SetOrderedLapCount`.
+- Save: `SaveSystem.ManualSave`, `SaveSystem.ManualSaveAs`, `SaveSystem.AutoSave`, `SaveSystem.LoadSaveWithName`.
+- Car design: `CarPartDesign.StartDesigning`, `CarPartDesign.BuildTwoParts`, `NextYearCarDesign.StartDesign`.
+- Pit crew: `PitCrewController.AssignRoleToPitCrewMember`, `PitCrewController.SwapActivePitCrewMembers`.
+
+These are integration candidates, not yet proof that every UI path reaches the
+same method. Each candidate must be verified by a diagnostic log before it is
+made network-authoritative.
