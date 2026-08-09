@@ -56,7 +56,7 @@ namespace MotorsportManagerCoop
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
         private static bool _autoLoadRequested;
-        private static bool _introSkipped;
+        private static float _autoLoadElapsed;
 
         private static void Log(string message)
         {
@@ -76,8 +76,6 @@ namespace MotorsportManagerCoop
             _harmony = new Harmony("codex.motorsportmanager.coop");
             PatchIntroScreen(typeof(AttractIntroScreen), "OnEnter");
             PatchIntroScreen(typeof(BaseMovieScreen), "OnStart");
-            PatchIntroScreen(typeof(LegalScreen), "OnEnter");
-            PatchIntroScreen(typeof(TitleLoadingScreen), "OnEnter");
             _harmony.Patch(
                 AccessTools.Method(typeof(GameTimer), "PlaySkipSim"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
@@ -232,15 +230,17 @@ namespace MotorsportManagerCoop
             catch (Exception ex) { Log("intro hook failed type=" + (type == null ? "-" : type.Name) + " method=" + methodName + " error=" + ex.Message); }
         }
 
-        private static void OnIntroScreenStarted()
+        private static void OnIntroScreenStarted(object __instance)
         {
             if (!IsAutoMode()) return;
             try
             {
-                Application.LoadLevel("TitleScreen");
-                Log("skipped intro screen via Harmony");
+                MethodInfo continueMethod = AccessTools.Method(__instance.GetType(), "Continue");
+                if (continueMethod == null) return;
+                continueMethod.Invoke(__instance, null);
+                Log("continued intro screen via game state machine type=" + __instance.GetType().Name);
             }
-            catch (Exception ex) { Log("intro Harmony skip failed=" + ex.Message); }
+            catch (Exception ex) { Log("intro continue failed=" + ex.Message); }
         }
 
         private static void OnPlaySkipSim()
@@ -996,9 +996,9 @@ namespace MotorsportManagerCoop
         private static void OnUpdate(UnityModManager.ModEntry modEntry, float deltaTime)
         {
             if (!_enabled) return;
-            SkipIntroScreens();
+            _autoLoadElapsed += deltaTime;
             EnsureSaveSystem();
-            if (!_autoLoadRequested && IsAutoMode() && _saveSystem != null && Game.instance != null)
+            if (!_autoLoadRequested && _autoLoadElapsed >= 5f && IsAutoMode() && _saveSystem != null)
             {
                 _autoLoadRequested = true;
                 try
@@ -1032,23 +1032,6 @@ namespace MotorsportManagerCoop
             string role = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
             return String.Equals(role, "host", StringComparison.OrdinalIgnoreCase) ||
                    String.Equals(role, "client", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static void SkipIntroScreens()
-        {
-            if (!IsAutoMode() || _introSkipped) return;
-            try
-            {
-                string scene = Application.loadedLevelName;
-                if (scene == "AttractIntroScreen" || scene == "MovieScreen" ||
-                    scene == "LegalScreen" || scene == "TitleLoadingScreen")
-                {
-                    _introSkipped = true;
-                    Application.LoadLevel("TitleScreen");
-                    Log("skipped intro scene=" + scene);
-                }
-            }
-            catch (Exception ex) { Log("intro skip failed=" + ex.Message); }
         }
 
         private static void Connect()
