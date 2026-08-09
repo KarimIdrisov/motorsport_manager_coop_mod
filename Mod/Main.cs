@@ -220,9 +220,18 @@ namespace MotorsportManagerCoop
                 if (revision > 0)
                 {
                     if (_lastRevision > 0 && revision != _lastRevision + 1)
+                    {
                         _status = "Resync required: missed revision " + _lastRevision + " -> " + revision;
+                        if (!_isHost)
+                            SendPacket(Encoding.UTF8.GetBytes("{\"type\":\"resync_request\"}\n"));
+                    }
                     _lastRevision = Math.Max(_lastRevision, revision);
                 }
+            }
+            if (incoming != null && incoming.IndexOf("\"type\":\"resync_snapshot\"", StringComparison.Ordinal) >= 0)
+            {
+                _lastRevision = ReadRevision(incoming);
+                _status = "Resync complete at revision " + _lastRevision;
             }
             if (incoming != null && _timer != null &&
                 (incoming.IndexOf("play_skip_sim", StringComparison.Ordinal) >= 0 ||
@@ -357,6 +366,9 @@ namespace MotorsportManagerCoop
                         string line = all.Substring(0, end).Trim(); all = all.Substring(end + 1);
                         if (line.IndexOf("\"type\":\"hello\"", StringComparison.Ordinal) >= 0)
                             WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"welcome\",\"protocol\":0,\"role\":\"client\"}\n"));
+                        else if (line.IndexOf("\"type\":\"resync_request\"", StringComparison.Ordinal) >= 0)
+                            WritePacket(stream, Encoding.UTF8.GetBytes(
+                                "{\"type\":\"resync_snapshot\",\"revision\":" + _hostRevision + "}\n"));
                         else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
                         {
                             int revision = Interlocked.Increment(ref _hostRevision);
