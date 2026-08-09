@@ -64,8 +64,8 @@ namespace MotorsportManagerCoop
         private static bool _autoLoadRequested;
         private static float _autoLoadElapsed;
         private static bool _newCareerOpened;
-        private static object _pendingIntroScreen;
-        private static float _pendingIntroAt;
+        private static bool _attractIntroContinued;
+        private static bool _movieIntroContinued;
 
         private static void Log(string message)
         {
@@ -83,8 +83,8 @@ namespace MotorsportManagerCoop
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
-            PatchIntroScreen(typeof(AttractIntroScreen), "OnEnter");
-            PatchIntroScreen(typeof(BaseMovieScreen), "OnStart");
+            PatchIntroScreen(typeof(AttractIntroScreen), "Update");
+            PatchIntroScreen(typeof(BaseMovieScreen), "Update");
             _harmony.Patch(AccessTools.Method(typeof(QualitySelectScreen), "OnEnter"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnQualityScreenEntered)));
             _harmony.Patch(AccessTools.Method(typeof(TitleScreen), "OnEnter"),
@@ -261,8 +261,24 @@ namespace MotorsportManagerCoop
             if (!IsAutoMode()) return;
             Type type = __instance == null ? null : __instance.GetType();
             if (type != typeof(AttractIntroScreen) && type != typeof(MovieScreen)) return;
-            _pendingIntroScreen = __instance;
-            _pendingIntroAt = Time.realtimeSinceStartup + 0.25f;
+            if (type == typeof(AttractIntroScreen))
+            {
+                if (_attractIntroContinued) return;
+                _attractIntroContinued = true;
+            }
+            else
+            {
+                if (_movieIntroContinued) return;
+                _movieIntroContinued = true;
+            }
+            try
+            {
+                MethodInfo continueMethod = AccessTools.Method(type, "Continue");
+                if (continueMethod == null) return;
+                continueMethod.Invoke(__instance, null);
+                Log("continued startup screen from Update type=" + type.Name);
+            }
+            catch (Exception ex) { Log("startup screen continue failed=" + ex.Message); }
         }
 
         private static void OnQualityScreenEntered(QualitySelectScreen __instance)
@@ -1178,7 +1194,6 @@ namespace MotorsportManagerCoop
         private static void OnUpdate(UnityModManager.ModEntry modEntry, float deltaTime)
         {
             if (!_enabled) return;
-            ContinuePendingIntro();
             _autoLoadElapsed += deltaTime;
             EnsureSaveSystem();
             FlushAuthoritativeSave();
@@ -1209,21 +1224,6 @@ namespace MotorsportManagerCoop
             }
             catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
             finally { _applyRemoteAction = false; }
-        }
-
-        private static void ContinuePendingIntro()
-        {
-            if (_pendingIntroScreen == null || Time.realtimeSinceStartup < _pendingIntroAt) return;
-            object screen = _pendingIntroScreen;
-            _pendingIntroScreen = null;
-            try
-            {
-                MethodInfo continueMethod = AccessTools.Method(screen.GetType(), "Continue");
-                if (continueMethod == null) return;
-                continueMethod.Invoke(screen, null);
-                Log("continued intro after initialization type=" + screen.GetType().Name);
-            }
-            catch (Exception ex) { Log("intro continue failed=" + ex.Message); }
         }
 
         private static bool IsAutoMode()
