@@ -1,0 +1,4 @@
+_remote_check/
+Launcher/bin/
+Launcher/obj/
+*.user

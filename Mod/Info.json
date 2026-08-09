@@ -1,0 +1,9 @@
+{
+  "Id": "MotorsportManagerCoop",
+  "DisplayName": "Motorsport Manager Coop (LAN)",
+  "Author": "Codex",
+  "Version": "0.1.0",
+  "ManagerVersion": "0.32.4",
+  "AssemblyName": "MotorsportManagerCoop.dll",
+  "EntryMethod": "MotorsportManagerCoop.Main.Load"
+}
