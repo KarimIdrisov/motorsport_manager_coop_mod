@@ -1,12 +1,13 @@
 const net = require('net');
 const { spawn } = require('child_process');
 
-const server = spawn(process.execPath, ['lan_server.js'], { stdio: ['ignore', 'pipe', 'pipe'] });
+const testPort = Number(process.env.MM_COOP_PORT || 27154);
+const server = spawn(process.execPath, ['lan_server.js'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MM_COOP_PORT: String(testPort) } });
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function client(name) {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: '127.0.0.1', port: 27153 });
+    const socket = net.createConnection({ host: '127.0.0.1', port: testPort });
     socket.setEncoding('utf8');
     let buffer = '';
     const messages = [];
@@ -28,7 +29,13 @@ function client(name) {
 }
 
 async function main() {
-  await wait(300);
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('LAN server startup timeout')), 3000);
+    server.stdout.on('data', chunk => {
+      if (String(chunk).includes('listening')) { clearTimeout(timer); resolve(); }
+    });
+    server.once('error', reject);
+  });
   const host = await client('Test Host');
   const guest = await client('Test Guest');
   await wait(100);
