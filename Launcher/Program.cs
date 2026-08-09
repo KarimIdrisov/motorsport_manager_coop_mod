@@ -141,7 +141,7 @@ internal sealed class LauncherForm : Form
         Add(layout, "Git URL", _repo, 1, Program.Settings.RepositoryUrl);
         Add(layout, "LAN порт", _port, 2, Program.Settings.ServerPort.ToString());
         var update = new Button { Text = "Обновить мод" }; update.Click += (_, _) => Run(Update);
-        var start = new Button { Text = "Запустить LAN + игру" }; start.Click += (_, _) => Run(Start);
+        var start = new Button { Text = "Обновить и запустить игру" }; start.Click += (_, _) => Run(Start);
         layout.Controls.Add(update, 0, 3); layout.Controls.Add(start, 1, 3);
         _log.Multiline = true; _log.ReadOnly = true; _log.ScrollBars = ScrollBars.Vertical; _log.Dock = DockStyle.Fill;
         layout.Controls.Add(_log, 0, 4); layout.SetColumnSpan(_log, 2); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -154,6 +154,6 @@ internal sealed class LauncherForm : Form
     { Program.Settings.GamePath = _gamePath.Text; Program.Settings.RepositoryUrl = _repo.Text; Program.Settings.ServerPort = int.TryParse(_port.Text, out var p) ? p : 27153; Program.SaveSettings(); }
     private void Run(Action<Action<string>> action) { try { Read(); action(Log); } catch (Exception ex) { Log("ОШИБКА: " + ex.Message); } }
     private void Update(Action<string> log) => log(Program.UpdateMod(log));
-    private void Start(Action<string> log) { Program.StartServer(log); Program.StartGame(log); }
+    private void Start(Action<string> log) { Program.UpdateMod(log); Program.StartGame(log); }
     private void Log(string message) => BeginInvoke(() => _log.AppendText(message + Environment.NewLine));
 }
