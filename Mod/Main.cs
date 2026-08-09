@@ -96,6 +96,10 @@ namespace MotorsportManagerCoop
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnFirePerson)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "RenewContractForPerson"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnRenewPerson)));
+            _harmony.Patch(AccessTools.Method(typeof(Finance), "ProcessTransaction"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnProcessTransaction)));
+            _harmony.Patch(AccessTools.Method(typeof(ContractSponsor), "PayUpfrontSponsorship"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSponsorPayment)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
@@ -199,6 +203,17 @@ namespace MotorsportManagerCoop
         {
             int id = PersonId(__0);
             if (id >= 0) { SendStrategyAction("contract_renew", id); Log("observed kind=contract_renew personId=" + id + " registry=" + _peopleById.Count); }
+        }
+
+        private static void OnProcessTransaction(Transaction __0)
+        {
+            if (__0 == null) return;
+            Log("observed kind=finance_transaction amount=" + __0.amount + " balance=" + __0.fundsAfterTransaction + " group=" + __0.group);
+        }
+
+        private static void OnSponsorPayment(bool __0)
+        {
+            Log("observed kind=sponsor_upfront_payment accepted=" + __0);
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
