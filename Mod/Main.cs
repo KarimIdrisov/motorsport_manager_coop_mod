@@ -63,6 +63,7 @@ namespace MotorsportManagerCoop
         private static float _suppressSavesUntil;
         private static bool _autoLoadRequested;
         private static float _autoLoadElapsed;
+        private static bool _newCareerOpened;
 
         private static void Log(string message)
         {
@@ -82,6 +83,10 @@ namespace MotorsportManagerCoop
             _harmony = new Harmony("codex.motorsportmanager.coop");
             PatchIntroScreen(typeof(AttractIntroScreen), "OnEnter");
             PatchIntroScreen(typeof(BaseMovieScreen), "OnStart");
+            _harmony.Patch(AccessTools.Method(typeof(QualitySelectScreen), "OnEnter"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnQualityScreenEntered)));
+            _harmony.Patch(AccessTools.Method(typeof(TitleScreen), "OnEnter"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnTitleScreenEntered)));
             _harmony.Patch(
                 AccessTools.Method(typeof(GameTimer), "PlaySkipSim"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
@@ -212,6 +217,9 @@ namespace MotorsportManagerCoop
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnManualSave)));
             _harmony.Patch(
+                AccessTools.Method(typeof(SaveSystem), "ManualSaveAs"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveName)));
+            _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "LoadSaveWithName"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystemForLoad)));
             _harmony.Patch(
@@ -257,6 +265,33 @@ namespace MotorsportManagerCoop
                 Log("continued intro screen via game state machine type=" + __instance.GetType().Name);
             }
             catch (Exception ex) { Log("intro continue failed=" + ex.Message); }
+        }
+
+        private static void OnQualityScreenEntered(QualitySelectScreen __instance)
+        {
+            if (!IsAutoMode()) return;
+            try
+            {
+                MethodInfo recommended = AccessTools.Method(typeof(QualitySelectScreen), "SetRecommendedMode");
+                if (recommended != null) recommended.Invoke(__instance, null);
+                __instance.OnContinueButton();
+                Log("continued quality selection via game screen");
+            }
+            catch (Exception ex) { Log("quality screen continue failed=" + ex.Message); }
+        }
+
+        private static void OnTitleScreenEntered(TitleScreen __instance)
+        {
+            if (!IsNewCareerMode() || _newCareerOpened) return;
+            try
+            {
+                _newCareerOpened = true;
+                MethodInfo method = AccessTools.Method(typeof(TitleScreen), "OnNewCareerButton");
+                if (method == null) throw new MissingMethodException("TitleScreen.OnNewCareerButton");
+                method.Invoke(__instance, null);
+                Log("opened new career wizard for coop test");
+            }
+            catch (Exception ex) { _newCareerOpened = false; Log("new career wizard failed=" + ex.Message); }
         }
 
         private static void OnPlaySkipSim()
@@ -646,6 +681,14 @@ namespace MotorsportManagerCoop
             _stateDirty = false;
             CaptureSaveSystem(__instance);
             Log("save load started; authoritative saves suspended");
+        }
+
+        private static void CaptureSaveName(SaveSystem __instance, string __0)
+        {
+            CaptureSaveSystem(__instance);
+            if (String.IsNullOrEmpty(__0)) return;
+            _snapshotSaveName = Path.GetFileNameWithoutExtension(__0) + ".sav";
+            Log("active shared save name=" + _snapshotSaveName);
         }
 
         private static void OnManualSave()
@@ -1136,7 +1179,7 @@ namespace MotorsportManagerCoop
             _autoLoadElapsed += deltaTime;
             EnsureSaveSystem();
             FlushAuthoritativeSave();
-            if (!_autoLoadRequested && _autoLoadElapsed >= 5f && IsAutoMode() && _saveSystem != null)
+            if (!_autoLoadRequested && _autoLoadElapsed >= 5f && IsAutoMode() && !IsNewCareerMode() && _saveSystem != null)
             {
                 _autoLoadRequested = true;
                 try
@@ -1170,6 +1213,11 @@ namespace MotorsportManagerCoop
             string role = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
             return String.Equals(role, "host", StringComparison.OrdinalIgnoreCase) ||
                    String.Equals(role, "client", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNewCareerMode()
+        {
+            return String.Equals(Environment.GetEnvironmentVariable("MM_COOP_NEW_CAREER"), "1", StringComparison.Ordinal);
         }
 
         private static void Connect()
