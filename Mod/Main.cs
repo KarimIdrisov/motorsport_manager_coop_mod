@@ -847,7 +847,10 @@ namespace MotorsportManagerCoop
                             Match kindMatch = Regex.Match(line, "\\\"kind\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
                             Log("received action kind=" + (kindMatch.Success ? kindMatch.Groups[1].Value : "unknown"));
                             int revision = Interlocked.Increment(ref _hostRevision);
-                            string action = line.TrimEnd('}').TrimEnd() + ",\"revision\":" + revision + "}";
+                            int outerEnd = line.LastIndexOf('}');
+                            string action = outerEnd >= 0
+                                ? line.Substring(0, outerEnd) + ",\"revision\":" + revision + "}"
+                                : line;
                             lock (_incomingLock) _incoming.Enqueue(action);
                             WritePacket(stream, Encoding.UTF8.GetBytes(
                                 "{\"type\":\"action_ack\",\"revision\":" + revision + "}\n"));
