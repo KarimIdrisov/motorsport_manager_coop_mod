@@ -43,6 +43,7 @@ namespace MotorsportManagerCoop
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
         private static int _hostRevision;
+        private static readonly Dictionary<int, Person> _peopleById = new Dictionary<int, Person>();
 
         private static void Log(string message)
         {
@@ -166,26 +167,38 @@ namespace MotorsportManagerCoop
 
         private static int PersonId(Person person)
         {
-            try { return person == null ? -1 : person.GetPersonIndexInManager(); }
+            try
+            {
+                if (person == null) return -1;
+                int id = person.GetPersonIndexInManager();
+                if (id >= 0) _peopleById[id] = person;
+                return id;
+            }
             catch { return -1; }
+        }
+
+        private static Person PersonById(int id)
+        {
+            Person person;
+            return _peopleById.TryGetValue(id, out person) ? person : null;
         }
 
         private static void OnHirePerson(Person __1)
         {
             int id = PersonId(__1);
-            if (id >= 0) { SendStrategyAction("contract_hire", id); Log("observed kind=contract_hire personId=" + id); }
+            if (id >= 0) { SendStrategyAction("contract_hire", id); Log("observed kind=contract_hire personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnFirePerson(Person __0)
         {
             int id = PersonId(__0);
-            if (id >= 0) { SendStrategyAction("contract_fire", id); Log("observed kind=contract_fire personId=" + id); }
+            if (id >= 0) { SendStrategyAction("contract_fire", id); Log("observed kind=contract_fire personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnRenewPerson(Person __0)
         {
             int id = PersonId(__0);
-            if (id >= 0) { SendStrategyAction("contract_renew", id); Log("observed kind=contract_renew personId=" + id); }
+            if (id >= 0) { SendStrategyAction("contract_renew", id); Log("observed kind=contract_renew personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
