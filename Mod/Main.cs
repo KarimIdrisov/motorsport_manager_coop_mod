@@ -54,7 +54,6 @@ namespace MotorsportManagerCoop
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
-        private static readonly object _writeLock = new object();
         private static int _hostRevision;
         private static readonly Dictionary<int, Person> _peopleById = new Dictionary<int, Person>();
         private static readonly Dictionary<int, SessionStrategy> _strategiesByVehicle = new Dictionary<int, SessionStrategy>();
@@ -63,6 +62,8 @@ namespace MotorsportManagerCoop
         private static readonly Dictionary<int, ERSController> _ersByVehicle = new Dictionary<int, ERSController>();
         private static readonly Dictionary<int, SessionPitstop> _pitstopsByVehicle = new Dictionary<int, SessionPitstop>();
         private static readonly Dictionary<int, SessionSetup> _setupsByVehicle = new Dictionary<int, SessionSetup>();
+        private static readonly HashSet<int> _remoteSetupInitialized = new HashSet<int>();
+        private static readonly HashSet<int> _pendingSendOut = new HashSet<int>();
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
         private static bool _gameReady;
@@ -78,6 +79,8 @@ namespace MotorsportManagerCoop
         private static bool _raceRuntimeReady;
         private static float _telemetryElapsed;
         private static float _telemetryLogElapsed;
+        private static volatile byte[] _lastTelemetryPacket;
+        private static bool _remotePaused;
 
         private static void Log(string message)
         {
@@ -1062,11 +1065,16 @@ namespace MotorsportManagerCoop
                 try
                 {
                     if (incoming.IndexOf("pause_or_play", StringComparison.Ordinal) >= 0)
-                        _timer.PauseOrPlaySkipSim();
+                    {
+                        _remotePaused = !_remotePaused;
+                        if (_remotePaused) _timer.Pause(GameTimer.PauseType.Game);
+                        else _timer.UnPause(GameTimer.PauseType.Game);
+                    }
                     else
                         _timer.PlaySkipSim();
                     _status = "Applied remote simulation command";
                     Log("applied remote simulation command");
+                    if (_isHost) BroadcastTelemetry();
                 }
                 catch (Exception ex) { _status = "Remote action failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
@@ -1130,7 +1138,10 @@ namespace MotorsportManagerCoop
                     else if (incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0)
                         targetStrategy.SetOrderedLapCount(value);
                     else if (incoming.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0)
-                        targetStrategy.SendOutOnTrack();
+                    {
+                        if (targetStrategy.status == SessionStrategy.Status.NoActionRequired) targetStrategy.SendOutOnTrack();
+                        else { _pendingSendOut.Add(incomingTarget); Log("queued remote send out vehicle=" + incomingTarget + " status=" + targetStrategy.status); }
+                    }
                     else if (incoming.IndexOf("return_to_garage", StringComparison.Ordinal) >= 0)
                         targetStrategy.ReturnToGarage();
                     else if (incoming.IndexOf("pit_command", StringComparison.Ordinal) >= 0)
@@ -1225,9 +1236,17 @@ namespace MotorsportManagerCoop
                     if (incoming.IndexOf("setup_value", StringComparison.Ordinal) >= 0)
                     {
                         SetupDetails details = ReadObject(setup, "targetSetup", "mTargetSetup") as SetupDetails;
-                        if (details == null || details.input == null) throw new InvalidOperationException("Target setup input unavailable");
+                        SetupDetails current = ReadObject(setup, "currentSetup", "mCurrentSetup") as SetupDetails;
+                        if (details == null || details.input == null || current == null || current.input == null) throw new InvalidOperationException("Setup input unavailable");
+                        if (!_remoteSetupInitialized.Contains(incomingTarget))
+                        {
+                            details.input.CopySetupInput(current.input);
+                            _remoteSetupInitialized.Add(incomingTarget);
+                        }
                         int option = ReadActionInt(incoming, "aux", 0);
-                        details.input.SetSetupValue((SetupInput_v1.SetupInputOptions)option, ReadActionValue(incoming) / 1000f);
+                        SetupInput_v1.SetupInputOptions setupOption = (SetupInput_v1.SetupInputOptions)option;
+                        if (!details.input.setup.ContainsKey(setupOption)) throw new InvalidOperationException("Setup option unavailable: " + setupOption);
+                        details.input.SetSetupValue(setupOption, ReadActionValue(incoming) / 1000f);
                         setup.SetTargetSetupInput(details.input);
                         Log("applied remote setup value vehicle=" + incomingTarget + " option=" + option);
                     }
@@ -1318,7 +1337,18 @@ namespace MotorsportManagerCoop
             if (_isHost && _telemetryLogElapsed >= 10f)
             {
                 _telemetryLogElapsed = 0f;
-                Log("telemetry heartbeat runtime=" + _raceRuntimeReady + " vehicles=" + _strategiesByVehicle.Count + " clients=" + _hostClients.Count);
+                Log("telemetry heartbeat runtime=" + _raceRuntimeReady + " vehicles=" + _strategiesByVehicle.Count + " clients=" + _hostClients.Count + " cached=" + (_lastTelemetryPacket == null ? 0 : _lastTelemetryPacket.Length));
+            }
+            if (_pendingSendOut.Count > 0)
+            {
+                foreach (int vehicleId in new List<int>(_pendingSendOut))
+                {
+                    SessionStrategy pendingStrategy;
+                    if (!_strategiesByVehicle.TryGetValue(vehicleId, out pendingStrategy) || pendingStrategy.status != SessionStrategy.Status.NoActionRequired) continue;
+                    try { _applyRemoteAction = true; pendingStrategy.SendOutOnTrack(); _pendingSendOut.Remove(vehicleId); Log("applied queued send out vehicle=" + vehicleId); }
+                    catch (Exception ex) { Log("queued send out failed=" + ex.Message); }
+                    finally { _applyRemoteAction = false; }
+                }
             }
             EnsureSaveSystem();
             if (_timer == null && Game.instance != null) _timer = ReadObject(Game.instance, "time", "mTime") as GameTimer;
@@ -1422,6 +1452,7 @@ namespace MotorsportManagerCoop
                 while (_listener != null)
                 {
                     TcpClient client = _listener.AcceptTcpClient();
+                    client.SendTimeout = 1000;
                     lock (_hostLock) _hostClients.Add(client);
                     new Thread(() => HostClientLoop(client)) { IsBackground = true }.Start();
                 }
@@ -1459,7 +1490,7 @@ namespace MotorsportManagerCoop
                         }
                         else if (line.IndexOf("\"type\":\"telemetry_request\"", StringComparison.Ordinal) >= 0)
                         {
-                            byte[] telemetry = BuildTelemetryPacket();
+                            byte[] telemetry = _lastTelemetryPacket;
                             if (telemetry != null) WritePacket(stream, telemetry);
                             Log("telemetry snapshot requested");
                         }
@@ -1510,12 +1541,14 @@ namespace MotorsportManagerCoop
         {
             lock (_hostLock)
                 foreach (TcpClient client in _hostClients.ToArray())
-                    if (client != except && client.Connected) try { WritePacket(client.GetStream(), packet); } catch { }
+                    if (client != except && client.Connected)
+                        try { WritePacket(client.GetStream(), packet); }
+                        catch { _hostClients.Remove(client); try { client.Close(); } catch { } }
         }
 
         private static void WritePacket(NetworkStream stream, byte[] packet)
         {
-            lock (_writeLock) stream.Write(packet, 0, packet.Length);
+            lock (stream) stream.Write(packet, 0, packet.Length);
         }
 
         private static void BroadcastTelemetry()
@@ -1523,7 +1556,7 @@ namespace MotorsportManagerCoop
             try
             {
                 byte[] packet = BuildTelemetryPacket();
-                if (packet != null) Broadcast(packet, null);
+                if (packet != null) { _lastTelemetryPacket = packet; Broadcast(packet, null); }
             }
             catch (Exception ex) { Log("telemetry build failed=" + ex.Message); }
         }
@@ -1535,7 +1568,7 @@ namespace MotorsportManagerCoop
                 StringBuilder json = new StringBuilder("{\"type\":\"telemetry\",\"session\":\"");
                 json.Append(JsonEscape(ReadText(_raceEvent, "sessionType", "mSessionType", "eventType")));
                 json.Append("\",\"speed\":").Append(_timer == null ? 0 : (int)ReadNumber(_timer, "speed", "mSpeed"));
-                json.Append(",\"paused\":").Append(_timer != null && ReadBool(_timer, "isPaused", "paused", "mIsPaused") ? "true" : "false");
+                json.Append(",\"paused\":").Append(_remotePaused ? "true" : "false");
                 json.Append(",\"vehicles\":[");
                 bool first = true;
                 foreach (KeyValuePair<int, SessionStrategy> pair in _strategiesByVehicle)
@@ -1552,6 +1585,7 @@ namespace MotorsportManagerCoop
                     json.Append(",\"position\":").Append((int)ReadNumber(vehicle, "position", "racePosition", "mRacePosition"));
                     json.Append(",\"fuel\":").Append(ReadNumber(fuel, "fuelLapDistance", "fuelLaps", "mFuelLapDistance").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     json.Append(",\"tyreWear\":").Append(ReadNumber(vehicle, "tyreWear", "mTyreWear").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"orderedLaps\":").Append((int)ReadNumber(pair.Value, "orderedLapCount", "mOrderedLapCount"));
                     json.Append(",\"tyres\":[");
                     bool firstTyre = true;
                     for (int tyreOption = 0; tyreOption < 5; tyreOption++)
@@ -1567,21 +1601,39 @@ namespace MotorsportManagerCoop
                         }
                     }
                     json.Append(']');
+                    int selectedTyreOption = -1;
+                    int selectedTyreIndex = -1;
+                    SessionPitstop selectedPitstop;
+                    if (_pitstopsByVehicle.TryGetValue(pair.Key, out selectedPitstop))
+                    {
+                        SetupDetails targetDetails = ReadObject(selectedPitstop, "targetSetup", "mTargetSetup") as SetupDetails;
+                        TyreSet selectedTyre = targetDetails == null ? null : targetDetails.tyreSet;
+                        if (selectedTyre != null)
+                        {
+                            for (int tyreOption = 0; tyreOption < 5 && selectedTyreOption < 0; tyreOption++)
+                            {
+                                int tyreCount = pair.Value.GetTyreCount((SessionStrategy.TyreOption)tyreOption);
+                                for (int tyreIndex = 0; tyreIndex < tyreCount; tyreIndex++)
+                                    if (object.ReferenceEquals(pair.Value.GetTyre((SessionStrategy.TyreOption)tyreOption, tyreIndex), selectedTyre))
+                                    {
+                                        selectedTyreOption = tyreOption;
+                                        selectedTyreIndex = tyreIndex;
+                                        break;
+                                    }
+                            }
+                        }
+                    }
+                    json.Append(",\"selectedTyreOption\":").Append(selectedTyreOption);
+                    json.Append(",\"selectedTyreIndex\":").Append(selectedTyreIndex);
                     SessionSetup sessionSetup;
                     json.Append(",\"setup\":[");
                     if (_setupsByVehicle.TryGetValue(pair.Key, out sessionSetup))
                     {
-                        SetupDetails details = ReadObject(sessionSetup, "targetSetup", "mTargetSetup") as SetupDetails;
-                        SetupDetails currentDetails = ReadObject(sessionSetup, "currentSetup", "mCurrentSetup") as SetupDetails;
-                        bool targetHasValues = false;
-                        if (details != null && details.input != null)
-                            for (int check = 0; check < 7; check++)
-                                if (Math.Abs(details.input.GetSetupValue((SetupInput_v1.SetupInputOptions)check)) > 0.0001f) { targetHasValues = true; break; }
-                        if (!targetHasValues && currentDetails != null && currentDetails.input != null) details = currentDetails;
+                        SetupDetails currentDetails = ReadObject(sessionSetup, "targetSetup", "mTargetSetup") as SetupDetails;
                         for (int option = 0; option < 7; option++)
                         {
                             if (option > 0) json.Append(',');
-                            float setupValue = details == null || details.input == null ? 0f : details.input.GetSetupValue((SetupInput_v1.SetupInputOptions)option);
+                            float setupValue = ReadSetupValue(currentDetails, option);
                             json.Append(setupValue.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
                         }
                     }
@@ -1605,6 +1657,13 @@ namespace MotorsportManagerCoop
                 if (property != null && property.GetIndexParameters().Length == 0) return property.GetValue(instance, null);
             }
             return null;
+        }
+
+        private static float ReadSetupValue(SetupDetails details, int option)
+        {
+            if (details == null || details.input == null) return -1f;
+            SetupInput_v1.SetupInputOptions key = (SetupInput_v1.SetupInputOptions)option;
+            return details.input.setup.ContainsKey(key) ? details.input.setup[key] : -1f;
         }
 
         private static string ReadText(object instance, params string[] names)

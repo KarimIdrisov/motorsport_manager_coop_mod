@@ -37,6 +37,63 @@ internal static class Program
 
     internal static Settings Settings => _settings;
 
+    internal static bool TryScheduleLauncherUpdate(Action<string> log)
+    {
+        try
+        {
+            string updateRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "MotorsportManagerCoop", "launcher-update");
+            string repository = Path.Combine(updateRoot, "repository");
+            Directory.CreateDirectory(updateRoot);
+            if (!Directory.Exists(Path.Combine(repository, ".git")))
+                Run("git", $"clone --depth 1 --branch {_settings.Branch} \"{_settings.RepositoryUrl}\" \"{repository}\"", updateRoot, log);
+            else
+                Run("git", $"-C \"{repository}\" pull --ff-only", updateRoot, log);
+
+            string source = Path.Combine(repository, "dist", "launcher");
+            string remoteAssembly = Path.Combine(source, "MotorsportManagerCoopLauncher.dll");
+            string localAssembly = Path.Combine(Root, "MotorsportManagerCoopLauncher.dll");
+            if (!File.Exists(remoteAssembly) || FilesEqual(remoteAssembly, localAssembly)) return false;
+
+            string staging = Path.Combine(updateRoot, "staging");
+            Directory.CreateDirectory(staging);
+            CopyDirectory(source, staging);
+            string updater = Path.Combine(updateRoot, "apply-launcher-update.cmd");
+            string executable = Path.Combine(Root, "MotorsportManagerCoopLauncher.exe");
+            File.WriteAllText(updater,
+                "@echo off\r\n" +
+                "timeout /t 2 /nobreak >nul\r\n" +
+                $"robocopy \"{staging}\" \"{Root.TrimEnd(Path.DirectorySeparatorChar)}\" /E /R:20 /W:1 >nul\r\n" +
+                $"start \"\" \"{executable}\"\r\n" +
+                "del \"%~f0\"\r\n",
+                new System.Text.UTF8Encoding(false));
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"\"{updater}\"\"")
+            {
+                WorkingDirectory = updateRoot,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            log("Найдена новая версия лаунчера. Установка и перезапуск…");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log("Автообновление лаунчера пропущено: " + ex.Message);
+            return false;
+        }
+    }
+
+    private static bool FilesEqual(string left, string right)
+    {
+        if (!File.Exists(right)) return false;
+        using var leftHash = System.Security.Cryptography.SHA256.Create();
+        using var rightHash = System.Security.Cryptography.SHA256.Create();
+        using var leftStream = File.OpenRead(left);
+        using var rightStream = File.OpenRead(right);
+        return leftHash.ComputeHash(leftStream).SequenceEqual(rightHash.ComputeHash(rightStream));
+    }
+
     internal static string UpdateMod(Action<string> log)
     {
         EnsureLoader(log);
