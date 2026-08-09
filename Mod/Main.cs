@@ -334,7 +334,7 @@ namespace MotorsportManagerCoop
 
         private static void OnSponsorPayment(bool __0)
         {
-            if (__0) PublishAuthoritativeSave("sponsor_payment");
+            if (__0) { SendStrategyAction("sponsor_payment", 1); PublishAuthoritativeSave("sponsor_payment"); }
             Log("observed kind=sponsor_upfront_payment accepted=" + __0);
         }
 
@@ -370,46 +370,55 @@ namespace MotorsportManagerCoop
 
         private static void OnPitCrewAssign(PitCrewMember __0, PitCrewMember __1)
         {
+            PublishAuthoritativeSave("pitcrew_assign");
             Log("observed kind=pitcrew_assign members=" + (__0 == null ? "-" : __0.name) + "," + (__1 == null ? "-" : __1.name));
         }
 
         private static void OnPitCrewSwap(PitCrewMember __0, PitCrewMember __1)
         {
+            PublishAuthoritativeSave("pitcrew_swap");
             Log("observed kind=pitcrew_swap members=" + (__0 == null ? "-" : __0.name) + "," + (__1 == null ? "-" : __1.name));
         }
 
         private static void OnPitCrewSignup(PitCrewMember __0)
         {
+            PublishAuthoritativeSave("pitcrew_signup");
             Log("observed kind=pitcrew_signup member=" + (__0 == null ? "-" : __0.name));
         }
 
         private static void OnPitCrewFire(PitCrewMember __0)
         {
+            PublishAuthoritativeSave("pitcrew_fire");
             Log("observed kind=pitcrew_fire member=" + (__0 == null ? "-" : __0.name));
         }
 
         private static void OnPracticeSimulated()
         {
+            PublishAuthoritativeSave("practice_complete");
             Log("observed kind=practice_complete");
         }
 
         private static void OnQualifyingSimulated()
         {
+            PublishAuthoritativeSave("qualifying_complete");
             Log("observed kind=qualifying_complete");
         }
 
         private static void OnRaceSimulated()
         {
+            PublishAuthoritativeSave("race_complete");
             Log("observed kind=race_complete");
         }
 
         private static void OnSessionSimulated()
         {
+            PublishAuthoritativeSave("session_complete");
             Log("observed kind=session_complete");
         }
 
         private static void OnEventSimulated()
         {
+            PublishAuthoritativeSave("event_complete");
             Log("observed kind=event_complete");
         }
 
