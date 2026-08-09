@@ -45,7 +45,44 @@ internal sealed class DashboardForm : Form
         var panel = new Panel { Dock = DockStyle.Fill };
         panel.Controls.Add(new Label { Text = "RACE COMMAND", Font = new Font("Segoe UI Semibold", 23f), ForeColor = TextMain, AutoSize = true, Location = new Point(0, 8) });
         panel.Controls.Add(new Label { Text = "Один Host. Один пилот. Полный контроль сессии.", ForeColor = TextMuted, AutoSize = true, Location = new Point(4, 47) });
+        var network = ActionButton("ПОДКЛЮЧЕНИЕ", SurfaceRaised, TextMain);
+        network.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        network.Location = new Point(panel.Width - 170, 18);
+        network.Width = 160;
+        network.Click += (_, _) => EditConnection();
+        panel.Resize += (_, _) => network.Left = panel.ClientSize.Width - network.Width;
+        panel.Controls.Add(network);
         return panel;
+    }
+
+    private void EditConnection()
+    {
+        using var dialog = new Form
+        {
+            Text = "Подключение к Host", ClientSize = new Size(410, 190),
+            StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false, BackColor = Surface, ForeColor = TextMain,
+            Font = Font
+        };
+        var host = Field(); host.Text = Program.Settings.ServerHost; host.Location = new Point(28, 45); host.Width = 354;
+        var port = Field(); port.Text = Program.Settings.ServerPort.ToString(); port.Location = new Point(28, 105); port.Width = 170;
+        dialog.Controls.Add(new Label { Text = "IP компьютера Host", AutoSize = true, ForeColor = TextMuted, Location = new Point(28, 22) });
+        dialog.Controls.Add(host);
+        dialog.Controls.Add(new Label { Text = "LAN-порт", AutoSize = true, ForeColor = TextMuted, Location = new Point(28, 82) });
+        dialog.Controls.Add(port);
+        var save = ActionButton("СОХРАНИТЬ", Accent, Color.FromArgb(8, 25, 15));
+        save.Location = new Point(230, 104); save.Width = 152; save.DialogResult = DialogResult.OK;
+        dialog.Controls.Add(save); dialog.AcceptButton = save;
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (!int.TryParse(port.Text, out int parsedPort) || parsedPort < 1 || parsedPort > 65535)
+        {
+            MessageBox.Show(this, "Порт должен быть числом от 1 до 65535.", "Неверный порт", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        Program.Settings.ServerHost = string.IsNullOrWhiteSpace(host.Text) ? "127.0.0.1" : host.Text.Trim();
+        Program.Settings.ServerPort = parsedPort;
+        Program.SaveSettings();
+        RebuildController();
     }
 
     private Control SetupPanel()
