@@ -36,6 +36,7 @@ namespace MotorsportManagerCoop
         private static Thread _receiveThread;
         private static readonly Queue<string> _incoming = new Queue<string>();
         private static readonly Queue<string> _deferredRaceActions = new Queue<string>();
+        private static readonly Queue<string> _deferredSessionLoads = new Queue<string>();
         private static readonly object _incomingLock = new object();
         private static bool _applyRemoteAction;
         private static bool _isHost;
@@ -45,10 +46,15 @@ namespace MotorsportManagerCoop
         private static string _snapshotTarget;
         private static string _snapshotSaveName = "SaveJohn Sina - Scuderia Rossini 7 Coop.sav";
         private static string _snapshotExpectedHash;
-        private static bool _snapshotReady;
+        private static int _snapshotLoadPending;
+        private static bool _snapshotLoadInProgress;
+        private static bool _initialSyncComplete;
+        private static string _pendingSnapshotHash;
+        private static string _lastAcceptedSnapshotHash;
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
+        private static readonly object _writeLock = new object();
         private static int _hostRevision;
         private static readonly Dictionary<int, Person> _peopleById = new Dictionary<int, Person>();
         private static readonly Dictionary<int, SessionStrategy> _strategiesByVehicle = new Dictionary<int, SessionStrategy>();
@@ -69,6 +75,7 @@ namespace MotorsportManagerCoop
         private static bool _attractIntroContinued;
         private static bool _movieIntroContinued;
         private static bool _raceRuntimeReady;
+        private static float _telemetryElapsed;
 
         private static void Log(string message)
         {
@@ -711,6 +718,13 @@ namespace MotorsportManagerCoop
 
         private static void OnGameLoaded()
         {
+            bool completedSnapshotLoad = _snapshotLoadInProgress;
+            _snapshotLoadInProgress = false;
+            if (completedSnapshotLoad && !_isHost)
+            {
+                _initialSyncComplete = true;
+                Log("initial host snapshot loaded; session commands enabled");
+            }
             _gameReady = Game.instance != null && Game.instance.isCareer;
             _stateDirty = false;
             _suppressSavesUntil = Time.realtimeSinceStartup + 10f;
@@ -977,20 +991,6 @@ namespace MotorsportManagerCoop
             if (!_enabled) return;
             EnsureSaveSystem();
             EnsureGameStateManager();
-            if (_snapshotReady && _saveSystem != null)
-            {
-                _snapshotReady = false;
-                try
-                {
-                    _applyRemoteAction = true;
-                    var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
-                    if (method != null) method.Invoke(_saveSystem, new object[] { Path.GetFileNameWithoutExtension(_snapshotSaveName) });
-                    _status = "Host save received and load requested";
-                    Log("received save snapshot name=" + _snapshotSaveName);
-                }
-                catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
-                finally { _applyRemoteAction = false; }
-            }
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("LAN Coop", GUILayout.Width(100))) _window = !_window;
             GUILayout.Label(_status, GUILayout.Width(220));
@@ -998,7 +998,9 @@ namespace MotorsportManagerCoop
             string incoming = null;
             lock (_incomingLock)
             {
-                if (_raceRuntimeReady && _deferredRaceActions.Count > 0)
+                if (_initialSyncComplete && _deferredSessionLoads.Count > 0)
+                    incoming = _deferredSessionLoads.Dequeue();
+                else if (_raceRuntimeReady && _deferredRaceActions.Count > 0)
                     incoming = _deferredRaceActions.Dequeue();
                 else if (_incoming.Count > 0)
                     incoming = _incoming.Dequeue();
@@ -1039,51 +1041,6 @@ namespace MotorsportManagerCoop
                 _status = "Resync complete at revision " + _lastRevision;
                 Log("received resync snapshot revision=" + _lastRevision);
             }
-            if (incoming != null && incoming.IndexOf("\"type\":\"save_begin\"", StringComparison.Ordinal) >= 0)
-            {
-                Match nameMatch = Regex.Match(incoming, "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-                string saveName = nameMatch.Success ? nameMatch.Groups[1].Value : _snapshotSaveName;
-                _snapshotSaveName = saveName;
-                Match hashMatch = Regex.Match(incoming, "\\\"sha256\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-                _snapshotExpectedHash = hashMatch.Success ? hashMatch.Groups[1].Value : null;
-                string dir = SaveDirectory();
-                _snapshotTarget = Path.Combine(dir, saveName);
-                _snapshotTemp = _snapshotTarget + ".coop.tmp";
-                Directory.CreateDirectory(dir);
-                _snapshotFile = new FileStream(_snapshotTemp, FileMode.Create, FileAccess.Write, FileShare.None);
-                _status = "Receiving host save...";
-            }
-            if (incoming != null && incoming.IndexOf("\"type\":\"save_chunk\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
-            {
-                Match chunk = Regex.Match(incoming, "\\\"data\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
-                if (chunk.Success) { byte[] data = Convert.FromBase64String(chunk.Groups[1].Value); _snapshotFile.Write(data, 0, data.Length); }
-            }
-            if (incoming != null && incoming.IndexOf("\"type\":\"save_end\"", StringComparison.Ordinal) >= 0 && _snapshotFile != null)
-            {
-                _snapshotFile.Close(); _snapshotFile = null;
-                string actualHash = ComputeSha256(_snapshotTemp);
-                if (!String.IsNullOrEmpty(_snapshotExpectedHash) &&
-                    !String.Equals(actualHash, _snapshotExpectedHash, StringComparison.OrdinalIgnoreCase))
-                {
-                    _status = "Snapshot checksum mismatch";
-                    Log("resync rejected checksum expected=" + _snapshotExpectedHash + " actual=" + actualHash);
-                    try { File.Delete(_snapshotTemp); } catch { }
-                    _snapshotExpectedHash = null;
-                    return;
-                }
-                Log("resync checksum verified sha256=" + actualHash);
-                if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
-                File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
-                Log("resync file replaced target=" + _snapshotTarget);
-                try
-                {
-                    var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
-                    if (method != null) method.Invoke(_saveSystem, new object[] { Path.GetFileNameWithoutExtension(_snapshotSaveName) });
-                    _status = "Host save received and load requested";
-                    Log("received save snapshot name=" + _snapshotSaveName);
-                }
-                catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; }
-            }
             if (incoming != null && _timer != null &&
                 (incoming.IndexOf("play_skip_sim", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pause_or_play", StringComparison.Ordinal) >= 0))
@@ -1109,6 +1066,12 @@ namespace MotorsportManagerCoop
             }
             if (incoming != null && incoming.IndexOf("load_race_event", StringComparison.Ordinal) >= 0)
             {
+                if (!_isHost && (!_initialSyncComplete || _snapshotLoadInProgress || Interlocked.CompareExchange(ref _snapshotLoadPending, 0, 0) != 0))
+                {
+                    lock (_incomingLock) _deferredSessionLoads.Enqueue(incoming);
+                    Log("deferred race event load until host snapshot is loaded");
+                    return;
+                }
                 EnsureGameStateManager();
                 _applyRemoteAction = true;
                 _raceRuntimeReady = false;
@@ -1298,6 +1261,12 @@ namespace MotorsportManagerCoop
         {
             if (!_enabled) return;
             _autoLoadElapsed += deltaTime;
+            _telemetryElapsed += deltaTime;
+            if (_isHost && _telemetryElapsed >= 0.5f)
+            {
+                _telemetryElapsed = 0f;
+                BroadcastTelemetry();
+            }
             EnsureSaveSystem();
             FlushAuthoritativeSave();
             if (!_autoLoadRequested && _autoLoadElapsed >= 5f && _isHost && !IsNewCareerMode() && _saveSystem != null)
@@ -1313,9 +1282,9 @@ namespace MotorsportManagerCoop
                 catch (Exception ex) { _autoLoadRequested = false; Log("automatic shared save load failed=" + ex.Message); }
                 finally { _applyRemoteAction = false; }
             }
-            if (!_snapshotReady) return;
             if (_saveSystem == null) return;
-            _snapshotReady = false;
+            if (_snapshotLoadInProgress || Interlocked.Exchange(ref _snapshotLoadPending, 0) != 1) return;
+            _snapshotLoadInProgress = true;
             try
             {
                 _applyRemoteAction = true;
@@ -1325,7 +1294,7 @@ namespace MotorsportManagerCoop
                 _status = "Host save received and load requested";
                 Log("received save snapshot name=" + _snapshotSaveName);
             }
-            catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
+            catch (Exception ex) { _snapshotLoadInProgress = false; _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
             finally { _applyRemoteAction = false; }
         }
 
@@ -1344,6 +1313,7 @@ namespace MotorsportManagerCoop
         private static void Connect()
         {
             Disconnect();
+            _initialSyncComplete = false;
             int port;
             if (!Int32.TryParse(_port, out port)) { _status = "Invalid port"; return; }
             try
@@ -1354,12 +1324,9 @@ namespace MotorsportManagerCoop
                 byte[] hello = Encoding.UTF8.GetBytes(
                     "{\"type\":\"hello\",\"protocol\":0,\"name\":\"" + _name + "\"}\n");
                 _stream.Write(hello, 0, hello.Length);
-                if (String.Equals(Environment.GetEnvironmentVariable("MM_COOP_AUTOSYNC"), "1", StringComparison.Ordinal))
-                {
-                    byte[] request = Encoding.UTF8.GetBytes("{\"type\":\"resync_request\"}\n");
-                    _stream.Write(request, 0, request.Length);
-                    Log("client requested automatic resync");
-                }
+                byte[] request = Encoding.UTF8.GetBytes("{\"type\":\"resync_request\"}\n");
+                _stream.Write(request, 0, request.Length);
+                Log("client requested mandatory initial resync");
                 string autoAction = Environment.GetEnvironmentVariable("MM_COOP_AUTOACTION");
                 if (!String.IsNullOrEmpty(autoAction))
                 {
@@ -1487,7 +1454,80 @@ namespace MotorsportManagerCoop
         }
 
         private static void WritePacket(NetworkStream stream, byte[] packet)
-        { stream.Write(packet, 0, packet.Length); }
+        {
+            lock (_writeLock) stream.Write(packet, 0, packet.Length);
+        }
+
+        private static void BroadcastTelemetry()
+        {
+            if (!_raceRuntimeReady || _strategiesByVehicle.Count == 0) return;
+            try
+            {
+                StringBuilder json = new StringBuilder("{\"type\":\"telemetry\",\"session\":\"");
+                json.Append(JsonEscape(ReadText(_raceEvent, "sessionType", "mSessionType", "eventType")));
+                json.Append("\",\"speed\":").Append(_timer == null ? 0 : (int)ReadNumber(_timer, "speed", "mSpeed"));
+                json.Append(",\"paused\":").Append(_timer != null && ReadBool(_timer, "isPaused", "paused", "mIsPaused") ? "true" : "false");
+                json.Append(",\"vehicles\":[");
+                bool first = true;
+                foreach (KeyValuePair<int, SessionStrategy> pair in _strategiesByVehicle)
+                {
+                    RacingVehicle vehicle = VehicleFromComponent(pair.Value);
+                    if (vehicle == null || !vehicle.isPlayerDriver) continue;
+                    if (!first) json.Append(',');
+                    first = false;
+                    object driver = ReadObject(vehicle, "driver", "mDriver");
+                    object fuel = _fuelByVehicle.ContainsKey(pair.Key) ? _fuelByVehicle[pair.Key] : null;
+                    json.Append("{\"id\":").Append(pair.Key);
+                    json.Append(",\"driver\":\"").Append(JsonEscape(ReadText(driver, "name", "fullName", "mName"))).Append('"');
+                    json.Append(",\"lap\":").Append((int)ReadNumber(vehicle, "lap", "lapNumber", "mLap"));
+                    json.Append(",\"position\":").Append((int)ReadNumber(vehicle, "position", "racePosition", "mRacePosition"));
+                    json.Append(",\"fuel\":").Append(ReadNumber(fuel, "fuelLapDistance", "fuelLaps", "mFuelLapDistance").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyreWear\":").Append(ReadNumber(vehicle, "tyreWear", "mTyreWear").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"status\":\"").Append(JsonEscape(ReadText(vehicle, "currentState", "mCurrentState"))).Append("\"}");
+                }
+                json.Append("]}\n");
+                Broadcast(Encoding.UTF8.GetBytes(json.ToString()), null);
+            }
+            catch (Exception ex) { Log("telemetry build failed=" + ex.Message); }
+        }
+
+        private static object ReadObject(object instance, params string[] names)
+        {
+            if (instance == null) return null;
+            foreach (string name in names)
+            {
+                FieldInfo field = AccessTools.Field(instance.GetType(), name);
+                if (field != null) return field.GetValue(instance);
+                PropertyInfo property = AccessTools.Property(instance.GetType(), name);
+                if (property != null && property.GetIndexParameters().Length == 0) return property.GetValue(instance, null);
+            }
+            return null;
+        }
+
+        private static string ReadText(object instance, params string[] names)
+        {
+            object value = ReadObject(instance, names);
+            return value == null ? "" : value.ToString();
+        }
+
+        private static double ReadNumber(object instance, params string[] names)
+        {
+            object value = ReadObject(instance, names);
+            try { return value == null ? 0d : Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture); }
+            catch { return 0d; }
+        }
+
+        private static bool ReadBool(object instance, params string[] names)
+        {
+            object value = ReadObject(instance, names);
+            try { return value != null && Convert.ToBoolean(value, System.Globalization.CultureInfo.InvariantCulture); }
+            catch { return false; }
+        }
+
+        private static string JsonEscape(string value)
+        {
+            return (value ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "").Replace("\n", " ");
+        }
 
         private static string ComputeSha256(string path)
         {
@@ -1613,10 +1653,18 @@ namespace MotorsportManagerCoop
                         File.Delete(_snapshotTemp); return;
                     }
                     Log("resync checksum verified sha256=" + actualHash);
+                    if (String.Equals(actualHash, _lastAcceptedSnapshotHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Delete(_snapshotTemp);
+                        Log("duplicate save snapshot ignored sha256=" + actualHash);
+                        return;
+                    }
                     if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
                     File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
                     Log("resync file replaced target=" + _snapshotTarget);
-                    _snapshotReady = true;
+                    _pendingSnapshotHash = actualHash;
+                    _lastAcceptedSnapshotHash = actualHash;
+                    Interlocked.Exchange(ref _snapshotLoadPending, 1);
                 }
             }
             catch (Exception ex) { Log("snapshot receive failed=" + ex.Message); }

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Param xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Hotkey>
+    <keyCode>None</keyCode>
+    <modifiers>0</modifiers>
+  </Hotkey>
+  <CheckUpdates>1</CheckUpdates>
+  <ShowOnStart>1</ShowOnStart>
+  <WindowWidth>0</WindowWidth>
+  <WindowHeight>0</WindowHeight>
+  <UIScale>1</UIScale>
+  <UIFont>Arial</UIFont>
+  <LastUpdateCheck>2026-08-09T10:37:22.3382525+10:00</LastUpdateCheck>
+  <ModParams>
+    <Mod Id="MotorsportManagerCoop" Enabled="true">
+      <Hotkey>
+        <keyCode>None</keyCode>
+        <modifiers>0</modifiers>
+      </Hotkey>
+    </Mod>
+  </ModParams>
+</Param>

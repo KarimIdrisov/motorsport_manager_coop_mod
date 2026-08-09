@@ -74,7 +74,9 @@ internal static class Program
         EnsureLoader(log);
         string exe = Path.Combine(_settings.GamePath, "MM.exe");
         if (!File.Exists(exe)) { log("MM.exe не найден."); return; }
-        Process.Start(new ProcessStartInfo(exe) { WorkingDirectory = _settings.GamePath });
+        var start = new ProcessStartInfo(exe) { WorkingDirectory = _settings.GamePath };
+        start.Environment["MM_COOP_AUTOSTART"] = "host";
+        Process.Start(start);
         log("Игра запущена.");
     }
 
@@ -144,6 +146,7 @@ internal sealed class LauncherForm : Form
     private readonly TextBox _gamePath = new();
     private readonly TextBox _repo = new();
     private readonly TextBox _port = new();
+    private readonly TextBox _serverHost = new();
     private readonly TextBox _log = new();
     private readonly ComboBox _saves = new() { DropDownStyle = ComboBoxStyle.DropDownList };
 
@@ -151,7 +154,7 @@ internal sealed class LauncherForm : Form
     {
         Text = "Motorsport Manager Coop";
         Width = 720; Height = 480; StartPosition = FormStartPosition.CenterScreen;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 6, ColumnCount = 2 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 9, ColumnCount = 2 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130)); layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         Add(layout, "Путь к игре", _gamePath, 0, Program.Settings.GamePath);
         Add(layout, "Git URL", _repo, 1, Program.Settings.RepositoryUrl);
@@ -161,19 +164,23 @@ internal sealed class LauncherForm : Form
         foreach (string save in Program.GetSaveFiles()) _saves.Items.Add(save);
         if (_saves.Items.Count > 0) _saves.SelectedIndex = 0;
         layout.Controls.Add(_saves, 1, 3);
+        foreach (Control control in layout.Controls.Cast<Control>().Where(control => layout.GetRow(control) == 3).ToArray()) layout.SetRow(control, 4);
+        Add(layout, "IP компьютера Host", _serverHost, 3, Program.Settings.ServerHost);
         var update = new Button { Text = "Обновить мод" }; update.Click += (_, _) => Run(Update);
         var start = new Button { Text = "Обновить и запустить игру" }; start.Click += (_, _) => Run(Start);
         var prepare = new Button { Text = "Подготовить кооп-сейв" }; prepare.Click += (_, _) => PrepareSave();
-        layout.Controls.Add(update, 0, 4); layout.Controls.Add(start, 1, 4); layout.Controls.Add(prepare, 0, 5); layout.SetColumnSpan(prepare, 2);
+        layout.Controls.Add(update, 0, 5); layout.Controls.Add(start, 1, 5); layout.Controls.Add(prepare, 0, 6); layout.SetColumnSpan(prepare, 2);
+        var controller = new Button { Text = "Пульт второго пилота" }; controller.Click += (_, _) => OpenController();
+        layout.Controls.Add(controller, 0, 7); layout.SetColumnSpan(controller, 2);
         _log.Multiline = true; _log.ReadOnly = true; _log.ScrollBars = ScrollBars.Vertical; _log.Dock = DockStyle.Fill;
-        layout.Controls.Add(_log, 0, 6); layout.SetColumnSpan(_log, 2); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(_log, 0, 8); layout.SetColumnSpan(_log, 2); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(layout);
     }
 
     private void Add(TableLayoutPanel panel, string label, TextBox box, int row, string value)
     { panel.Controls.Add(new Label { Text = label, AutoSize = true }, 0, row); box.Text = value; box.Dock = DockStyle.Fill; panel.Controls.Add(box, 1, row); }
     private void Read()
-    { Program.Settings.GamePath = _gamePath.Text; Program.Settings.RepositoryUrl = _repo.Text; Program.Settings.ServerPort = int.TryParse(_port.Text, out var p) ? p : 27153; Program.SaveSettings(); }
+    { Program.Settings.GamePath = _gamePath.Text; Program.Settings.RepositoryUrl = _repo.Text; Program.Settings.ServerHost = _serverHost.Text.Trim(); Program.Settings.ServerPort = int.TryParse(_port.Text, out var p) ? p : 27153; Program.SaveSettings(); }
     private void Run(Action<Action<string>> action) { try { Read(); action(Log); } catch (Exception ex) { Log("ОШИБКА: " + ex.Message); } }
     private void Update(Action<string> log) => log(Program.UpdateMod(log));
     private void Start(Action<string> log)
@@ -191,6 +198,11 @@ internal sealed class LauncherForm : Form
             Log("Подготовлен: " + Program.PrepareCoopSave(source));
         }
         catch (Exception ex) { Log("ОШИБКА: " + ex.Message); }
+    }
+    private void OpenController()
+    {
+        Read();
+        new RaceControllerForm(Program.Settings.ServerHost, Program.Settings.ServerPort).Show(this);
     }
     private void Log(string message) => BeginInvoke(() => _log.AppendText(message + Environment.NewLine));
 }
