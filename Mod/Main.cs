@@ -70,10 +70,11 @@ namespace MotorsportManagerCoop
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
-            PatchIntroScreen(typeof(AttractIntroScreen));
-            PatchIntroScreen(typeof(MovieScreen));
-            PatchIntroScreen(typeof(LegalScreen));
-            PatchIntroScreen(typeof(TitleLoadingScreen));
+            PatchIntroScreen(typeof(AttractIntroScreen), "OnEnter");
+            PatchIntroScreen(typeof(MovieScreen), "OnEnter");
+            PatchIntroScreen(typeof(BaseMovieScreen), "OnStart");
+            PatchIntroScreen(typeof(LegalScreen), "OnEnter");
+            PatchIntroScreen(typeof(TitleLoadingScreen), "OnEnter");
             _harmony.Patch(
                 AccessTools.Method(typeof(GameTimer), "PlaySkipSim"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
@@ -199,17 +200,17 @@ namespace MotorsportManagerCoop
             return true;
         }
 
-        private static void PatchIntroScreen(Type type)
+        private static void PatchIntroScreen(Type type, string methodName)
         {
             try
             {
                 if (type == null) return;
-                MethodInfo start = AccessTools.Method(type, "Start");
-                if (start == null) return;
-                _harmony.Patch(start, postfix: new HarmonyMethod(typeof(Main), nameof(OnIntroScreenStarted)));
-                Log("intro hook installed type=" + type.Name);
+                MethodInfo method = AccessTools.Method(type, methodName);
+                if (method == null) { Log("intro method missing type=" + type.Name + " method=" + methodName); return; }
+                _harmony.Patch(method, postfix: new HarmonyMethod(typeof(Main), nameof(OnIntroScreenStarted)));
+                Log("intro hook installed type=" + type.Name + " method=" + methodName);
             }
-            catch (Exception ex) { Log("intro hook failed type=" + (type == null ? "-" : type.Name) + " error=" + ex.Message); }
+            catch (Exception ex) { Log("intro hook failed type=" + (type == null ? "-" : type.Name) + " method=" + methodName + " error=" + ex.Message); }
         }
 
         private static void OnIntroScreenStarted()
