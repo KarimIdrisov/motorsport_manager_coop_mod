@@ -155,6 +155,8 @@ namespace MotorsportManagerCoop
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnManualSave)));
+            _harmony.Patch(AccessTools.Method(typeof(Game), "OnLoad"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnGameLoaded)));
             string autoRole = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
             if (String.Equals(autoRole, "host", StringComparison.OrdinalIgnoreCase))
             {
@@ -418,6 +420,14 @@ namespace MotorsportManagerCoop
         {
             PublishAuthoritativeSave("session_results");
             Log("observed kind=session_results");
+        }
+
+        private static void OnGameLoaded()
+        {
+            Log("game loaded career=" + (Game.instance != null && Game.instance.isCareer));
+            Log("game managers team=" + (Game.instance != null && Game.instance.teamManager != null) +
+                " championship=" + (Game.instance != null && Game.instance.championshipManager != null) +
+                " pitCrew=" + (Game.instance != null && Game.instance.pitCrewManager != null));
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
