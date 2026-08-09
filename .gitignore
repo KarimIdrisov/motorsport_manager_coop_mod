@@ -1,5 +1,4 @@
-_remote_check/
-_remote_verify*/
-Launcher/bin/
-Launcher/obj/
-*.user
+**/bin/
+**/obj/
+dist/launcher/launcher.json
+dist/launcher/repo/
