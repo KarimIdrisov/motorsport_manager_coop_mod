@@ -23,7 +23,7 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new LauncherForm());
+        Application.Run(new DashboardForm());
     }
 
     private static Settings LoadSettings()

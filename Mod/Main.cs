@@ -1418,6 +1418,12 @@ namespace MotorsportManagerCoop
                                 "{\"type\":\"resync_snapshot\",\"revision\":" + _hostRevision + "}\n"));
                             SendSaveSnapshot(stream);
                         }
+                        else if (line.IndexOf("\"type\":\"telemetry_request\"", StringComparison.Ordinal) >= 0)
+                        {
+                            byte[] telemetry = BuildTelemetryPacket();
+                            if (telemetry != null) WritePacket(stream, telemetry);
+                            Log("telemetry snapshot requested");
+                        }
                         else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
                         {
                             Match kindMatch = Regex.Match(line, "\\\"kind\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
@@ -1475,7 +1481,16 @@ namespace MotorsportManagerCoop
 
         private static void BroadcastTelemetry()
         {
-            if (!_raceRuntimeReady || _strategiesByVehicle.Count == 0) return;
+            try
+            {
+                byte[] packet = BuildTelemetryPacket();
+                if (packet != null) Broadcast(packet, null);
+            }
+            catch (Exception ex) { Log("telemetry build failed=" + ex.Message); }
+        }
+
+        private static byte[] BuildTelemetryPacket()
+        {
             try
             {
                 StringBuilder json = new StringBuilder("{\"type\":\"telemetry\",\"session\":\"");
@@ -1501,9 +1516,9 @@ namespace MotorsportManagerCoop
                     json.Append(",\"status\":\"").Append(JsonEscape(ReadText(vehicle, "currentState", "mCurrentState"))).Append("\"}");
                 }
                 json.Append("]}\n");
-                Broadcast(Encoding.UTF8.GetBytes(json.ToString()), null);
+                return Encoding.UTF8.GetBytes(json.ToString());
             }
-            catch (Exception ex) { Log("telemetry build failed=" + ex.Message); }
+            catch (Exception ex) { Log("telemetry build failed=" + ex.Message); return null; }
         }
 
         private static object ReadObject(object instance, params string[] names)
