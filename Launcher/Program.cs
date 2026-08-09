@@ -176,7 +176,13 @@ internal sealed class LauncherForm : Form
     { Program.Settings.GamePath = _gamePath.Text; Program.Settings.RepositoryUrl = _repo.Text; Program.Settings.ServerPort = int.TryParse(_port.Text, out var p) ? p : 27153; Program.SaveSettings(); }
     private void Run(Action<Action<string>> action) { try { Read(); action(Log); } catch (Exception ex) { Log("ОШИБКА: " + ex.Message); } }
     private void Update(Action<string> log) => log(Program.UpdateMod(log));
-    private void Start(Action<string> log) { Program.UpdateMod(log); Program.StartGame(log); }
+    private void Start(Action<string> log)
+    {
+        if (_saves.SelectedItem is string source)
+            log("Кооп-сейв: " + Program.PrepareCoopSave(source));
+        Program.UpdateMod(log);
+        Program.StartGame(log);
+    }
     private void PrepareSave()
     {
         try
