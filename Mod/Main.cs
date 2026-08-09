@@ -257,7 +257,13 @@ namespace MotorsportManagerCoop
                 _snapshotFile.Close(); _snapshotFile = null;
                 if (File.Exists(_snapshotTarget)) File.Copy(_snapshotTarget, _snapshotTarget + ".backup", true);
                 File.Copy(_snapshotTemp, _snapshotTarget, true); File.Delete(_snapshotTemp);
-                _status = "Host save received; restart career to load it";
+                try
+                {
+                    var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
+                    if (method != null) method.Invoke(_saveSystem, new object[] { "SaveJohn Sina - Scuderia Rossini 7" });
+                    _status = "Host save received and load requested";
+                }
+                catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; }
             }
             if (incoming != null && _timer != null &&
                 (incoming.IndexOf("play_skip_sim", StringComparison.Ordinal) >= 0 ||
