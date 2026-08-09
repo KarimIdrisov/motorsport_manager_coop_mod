@@ -92,6 +92,24 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "SetOrderedLapCount"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetOrderedLapCount)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "SendOutOnTrack"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSendOutOnTrack)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "ReturnToGarage"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnReturnToGarage)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "Pit"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCommand)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "CancelPit"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnCancelPit)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "ApplyQueueOrders"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnApplyQueueOrders)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "RemoveQueuedOrder"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnRemoveQueuedOrder)));
             _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "StartDesigning"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnStartDesigning)));
@@ -477,6 +495,13 @@ namespace MotorsportManagerCoop
             Log("observed kind=ordered_lap_count value=" + __0);
         }
 
+        private static void OnSendOutOnTrack() { SendStrategyAction("send_out_on_track", 0); }
+        private static void OnReturnToGarage() { SendStrategyAction("return_to_garage", 0); }
+        private static void OnPitCommand() { SendStrategyAction("pit_command", 0); }
+        private static void OnCancelPit() { SendStrategyAction("cancel_pit", 0); }
+        private static void OnApplyQueueOrders() { SendStrategyAction("apply_queue_orders", 0); }
+        private static void OnRemoveQueuedOrder() { SendStrategyAction("remove_queued_order", 0); }
+
         private static void SendStrategyAction(string kind, int value)
         {
             if (_applyRemoteAction || (_stream == null && !_isHost)) return;
@@ -650,7 +675,13 @@ namespace MotorsportManagerCoop
             if (incoming != null && _strategy != null &&
                 (incoming.IndexOf("team_orders", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0 ||
-                 incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0))
+                 incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("return_to_garage", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("pit_command", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("cancel_pit", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("apply_queue_orders", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("remove_queued_order", StringComparison.Ordinal) >= 0))
             {
                 _applyRemoteAction = true;
                 try
@@ -660,8 +691,20 @@ namespace MotorsportManagerCoop
                         _strategy.SetTeamOrders((SessionStrategy.TeamOrders)value);
                     else if (incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0)
                         _strategy.SetPitStrategy((SessionStrategy.PitStrategy)value);
-                    else
+                    else if (incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0)
                         _strategy.SetOrderedLapCount(value);
+                    else if (incoming.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0)
+                        _strategy.SendOutOnTrack();
+                    else if (incoming.IndexOf("return_to_garage", StringComparison.Ordinal) >= 0)
+                        _strategy.ReturnToGarage();
+                    else if (incoming.IndexOf("pit_command", StringComparison.Ordinal) >= 0)
+                        _strategy.Pit();
+                    else if (incoming.IndexOf("cancel_pit", StringComparison.Ordinal) >= 0)
+                        _strategy.CancelPit();
+                    else if (incoming.IndexOf("apply_queue_orders", StringComparison.Ordinal) >= 0)
+                        _strategy.ApplyQueueOrders();
+                    else
+                        _strategy.RemoveQueuedOrder();
                     _status = "Applied remote race strategy";
                 }
                 catch (Exception ex) { _status = "Remote strategy failed: " + ex.Message; }
