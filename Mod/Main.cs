@@ -77,6 +77,11 @@ namespace MotorsportManagerCoop
                 AccessTools.Method(typeof(SessionStrategy), "SetPitStrategy"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSetPitStrategy)));
+            _harmony.Patch(AccessTools.Method(typeof(GameTimer), "SetSpeedDontUnpause"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSetSpeed)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "SetOrderedLapCount"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnSetOrderedLapCount)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
@@ -160,6 +165,18 @@ namespace MotorsportManagerCoop
         private static void OnSetPitStrategy(SessionStrategy.PitStrategy pitStrategy)
         {
             SendStrategyAction("pit_strategy", (int)pitStrategy);
+        }
+
+        private static void OnSetSpeed(GameTimer.Speed __0)
+        {
+            SendStrategyAction("simulation_speed", (int)__0);
+            Log("observed kind=simulation_speed value=" + (int)__0);
+        }
+
+        private static void OnSetOrderedLapCount(int __0)
+        {
+            SendStrategyAction("ordered_lap_count", __0);
+            Log("observed kind=ordered_lap_count value=" + __0);
         }
 
         private static void SendStrategyAction(string kind, int value)
@@ -301,7 +318,8 @@ namespace MotorsportManagerCoop
             }
             if (incoming != null && _strategy != null &&
                 (incoming.IndexOf("team_orders", StringComparison.Ordinal) >= 0 ||
-                 incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0))
+                 incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0))
             {
                 _applyRemoteAction = true;
                 try
@@ -309,11 +327,20 @@ namespace MotorsportManagerCoop
                     int value = ReadActionValue(incoming);
                     if (incoming.IndexOf("team_orders", StringComparison.Ordinal) >= 0)
                         _strategy.SetTeamOrders((SessionStrategy.TeamOrders)value);
-                    else
+                    else if (incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0)
                         _strategy.SetPitStrategy((SessionStrategy.PitStrategy)value);
+                    else
+                        _strategy.SetOrderedLapCount(value);
                     _status = "Applied remote race strategy";
                 }
                 catch (Exception ex) { _status = "Remote strategy failed: " + ex.Message; }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null && incoming.IndexOf("simulation_speed", StringComparison.Ordinal) >= 0 && _timer != null)
+            {
+                _applyRemoteAction = true;
+                try { _timer.SetSpeedDontUnpause((GameTimer.Speed)ReadActionValue(incoming)); _status = "Applied remote simulation speed"; }
+                catch (Exception ex) { _status = "Remote speed failed: " + ex.Message; }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("manual_save", StringComparison.Ordinal) >= 0 && _saveSystem != null)
