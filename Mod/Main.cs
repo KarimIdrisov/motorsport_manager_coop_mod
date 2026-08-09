@@ -56,6 +56,11 @@ namespace MotorsportManagerCoop
         private static readonly Dictionary<int, SessionPitstop> _pitstopsByVehicle = new Dictionary<int, SessionPitstop>();
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
+        private static bool _gameReady;
+        private static bool _stateDirty;
+        private static string _stateDirtyReason;
+        private static float _stateDirtyAt;
+        private static float _suppressSavesUntil;
         private static bool _autoLoadRequested;
         private static float _autoLoadElapsed;
 
@@ -208,10 +213,10 @@ namespace MotorsportManagerCoop
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnManualSave)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "LoadSaveWithName"),
-                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)));
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystemForLoad)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "Load", new[] { typeof(SaveFileInfo), typeof(bool) }),
-                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)));
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystemForLoad)));
             _harmony.Patch(AccessTools.Method(typeof(Game), "OnLoad"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnGameLoaded)));
             string autoRole = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
@@ -461,17 +466,34 @@ namespace MotorsportManagerCoop
 
         private static void PublishAuthoritativeSave(string reason)
         {
-            if (!_isHost || _applyRemoteAction || _authoritativeSaveInProgress) return;
+            if (!_isHost || _applyRemoteAction || !_gameReady || Time.realtimeSinceStartup < _suppressSavesUntil) return;
             EnsureSaveSystem();
             if (_saveSystem == null) { Log("state_dirty reason=" + reason + " save_system=unavailable"); return; }
+            _stateDirty = true;
+            _stateDirtyReason = reason;
+            _stateDirtyAt = Time.realtimeSinceStartup;
+            Log("state_dirty queued reason=" + reason);
+        }
+
+        private static void FlushAuthoritativeSave()
+        {
+            if (!_isHost || !_gameReady || !_stateDirty || _authoritativeSaveInProgress || _saveSystem == null) return;
+            if (Time.realtimeSinceStartup - _stateDirtyAt < 1f) return;
+            string reason = _stateDirtyReason;
             try
             {
                 _authoritativeSaveInProgress = true;
+                _stateDirty = false;
                 _saveSystem.ManualSaveAs(Path.GetFileNameWithoutExtension(_snapshotSaveName));
                 Log("state_dirty reason=" + reason + " authoritative_save=requested");
             }
-            catch (Exception ex) { Log("authoritative_save failed reason=" + reason + " error=" + ex.Message); }
-            finally { _authoritativeSaveInProgress = false; }
+            catch (Exception ex)
+            {
+                _authoritativeSaveInProgress = false;
+                _stateDirty = true;
+                _stateDirtyAt = Time.realtimeSinceStartup;
+                Log("authoritative_save failed reason=" + reason + " error=" + ex.Message);
+            }
         }
 
         private static void EnsureSaveSystem()
@@ -511,6 +533,7 @@ namespace MotorsportManagerCoop
 
         private static void OnSaveComplete()
         {
+            _authoritativeSaveInProgress = false;
             if (!_isHost) return;
             Log("authoritative_save completed; broadcasting snapshot");
             lock (_hostLock)
@@ -598,6 +621,9 @@ namespace MotorsportManagerCoop
 
         private static void OnGameLoaded()
         {
+            _gameReady = Game.instance != null && Game.instance.isCareer;
+            _stateDirty = false;
+            _suppressSavesUntil = Time.realtimeSinceStartup + 10f;
             Log("game loaded career=" + (Game.instance != null && Game.instance.isCareer));
             Log("game managers team=" + (Game.instance != null && Game.instance.teamManager != null) +
                 " championship=" + (Game.instance != null && Game.instance.championshipManager != null) +
@@ -612,6 +638,14 @@ namespace MotorsportManagerCoop
                 _saveHooked = true;
                 _saveSystem.OnSaveComplete += OnSaveComplete;
             }
+        }
+
+        private static void CaptureSaveSystemForLoad(SaveSystem __instance)
+        {
+            _gameReady = false;
+            _stateDirty = false;
+            CaptureSaveSystem(__instance);
+            Log("save load started; authoritative saves suspended");
         }
 
         private static void OnManualSave()
@@ -1101,6 +1135,7 @@ namespace MotorsportManagerCoop
             if (!_enabled) return;
             _autoLoadElapsed += deltaTime;
             EnsureSaveSystem();
+            FlushAuthoritativeSave();
             if (!_autoLoadRequested && _autoLoadElapsed >= 5f && IsAutoMode() && _saveSystem != null)
             {
                 _autoLoadRequested = true;
