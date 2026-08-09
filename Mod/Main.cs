@@ -35,6 +35,7 @@ namespace MotorsportManagerCoop
         private static TcpListener _listener;
         private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
         private static readonly object _hostLock = new object();
+        private static int _hostRevision;
 
         public static bool Load(UnityModManager.ModEntry modEntry)
         {
@@ -340,8 +341,12 @@ namespace MotorsportManagerCoop
                             WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"welcome\",\"protocol\":0,\"role\":\"client\"}\n"));
                         else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
                         {
-                            lock (_incomingLock) _incoming.Enqueue(line);
-                            Broadcast(Encoding.UTF8.GetBytes(line + "\n"), client);
+                            int revision = Interlocked.Increment(ref _hostRevision);
+                            string action = line.TrimEnd('}').TrimEnd() + ",\"revision\":" + revision + "}";
+                            lock (_incomingLock) _incoming.Enqueue(action);
+                            WritePacket(stream, Encoding.UTF8.GetBytes(
+                                "{\"type\":\"action_ack\",\"revision\":" + revision + "}\n"));
+                            Broadcast(Encoding.UTF8.GetBytes(action + "\n"), client);
                         }
                     }
                     text.Length = 0; text.Append(all);
