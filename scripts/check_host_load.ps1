@@ -7,6 +7,7 @@ $crashPatterns = @(
     'Collection was modified; enumeration operation may not execute',
     'FullSerializer.fsSerializer.TrySerialize',
     'MotorsportManagerCoop.Main.OnPitCrewAssign',
+    '**** Crash! ****',
     '[Manager] Destroying when exit.'
 )
 

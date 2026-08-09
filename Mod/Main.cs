@@ -563,7 +563,7 @@ namespace MotorsportManagerCoop
             {
                 _authoritativeSaveInProgress = true;
                 _stateDirty = false;
-                _saveSystem.ManualSaveAs(Path.GetFileNameWithoutExtension(_snapshotSaveName));
+                _saveSystem.ManualSaveAs(ToSaveSlotName(_snapshotSaveName));
                 Log("state_dirty reason=" + reason + " authoritative_save=requested");
             }
             catch (Exception ex)
@@ -742,8 +742,21 @@ namespace MotorsportManagerCoop
         {
             CaptureSaveSystem(__instance);
             if (String.IsNullOrEmpty(__0)) return;
-            _snapshotSaveName = Path.GetFileNameWithoutExtension(__0) + ".sav";
+            _snapshotSaveName = ToSaveFileName(__0);
             Log("active shared save name=" + _snapshotSaveName);
+        }
+
+        private static string ToSaveSlotName(string saveName)
+        {
+            string slot = Path.GetFileNameWithoutExtension(saveName) ?? String.Empty;
+            while (slot.StartsWith("Save", StringComparison.Ordinal) && slot.Length > 4)
+                slot = slot.Substring(4);
+            return slot;
+        }
+
+        private static string ToSaveFileName(string saveName)
+        {
+            return "Save" + ToSaveSlotName(saveName) + ".sav";
         }
 
         private static void OnManualSave()
