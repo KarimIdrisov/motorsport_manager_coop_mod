@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Config xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Name="Motorsport Manager">
+  <Folder>Motorsport Manager</Folder>
+  <ModsDirectory>Mods</ModsDirectory>
+  <ModInfo>Info.json</ModInfo>
+  <GameExe>MM.exe</GameExe>
+  <EntryPoint>[UnityEngine.UI.dll]UnityEngine.EventSystems.EventSystem.cctor:After</EntryPoint>
+  <StartingPoint>[Assembly-CSharp.dll]App.Awake:After</StartingPoint>
+  <UIStartingPoint>[Assembly-CSharp.dll]CreditsScreen.OnStart:After</UIStartingPoint>
+  <MinimalManagerVersion>0.18.0</MinimalManagerVersion>
+  <HarmonyVersion>2.2</HarmonyVersion>
+</Config>

@@ -1,4 +1,5 @@
 _remote_check/
+_remote_verify*/
 Launcher/bin/
 Launcher/obj/
 *.user
