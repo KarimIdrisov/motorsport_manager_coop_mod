@@ -131,6 +131,17 @@ namespace MotorsportManagerCoop
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnManualSave)));
+            string autoRole = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
+            if (String.Equals(autoRole, "host", StringComparison.OrdinalIgnoreCase))
+            {
+                StartHost();
+            }
+            else if (String.Equals(autoRole, "client", StringComparison.OrdinalIgnoreCase))
+            {
+                string autoHost = Environment.GetEnvironmentVariable("MM_COOP_HOST");
+                if (!String.IsNullOrEmpty(autoHost)) _host = autoHost;
+                new Thread(() => { Thread.Sleep(1500); Connect(); }) { IsBackground = true }.Start();
+            }
             return true;
         }
 
@@ -625,6 +636,7 @@ namespace MotorsportManagerCoop
                 _receiveThread = new Thread(ReceiveLoop) { IsBackground = true };
                 _receiveThread.Start();
                 _status = "Connected to " + _host + ":" + port;
+                Log("client connected host=" + _host + " port=" + port);
             }
             catch (Exception ex) { _status = "Connection failed: " + ex.Message; Disconnect(); }
         }
@@ -676,7 +688,10 @@ namespace MotorsportManagerCoop
                     {
                         string line = all.Substring(0, end).Trim(); all = all.Substring(end + 1);
                         if (line.IndexOf("\"type\":\"hello\"", StringComparison.Ordinal) >= 0)
+                        {
                             WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"welcome\",\"protocol\":0,\"role\":\"client\"}\n"));
+                            Log("peer handshake accepted");
+                        }
                         else if (line.IndexOf("\"type\":\"resync_request\"", StringComparison.Ordinal) >= 0)
                         {
                             WritePacket(stream, Encoding.UTF8.GetBytes(
