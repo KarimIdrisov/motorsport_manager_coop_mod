@@ -45,6 +45,8 @@ namespace MotorsportManagerCoop
         private static readonly object _hostLock = new object();
         private static int _hostRevision;
         private static readonly Dictionary<int, Person> _peopleById = new Dictionary<int, Person>();
+        private static bool _saveHooked;
+        private static bool _authoritativeSaveInProgress;
 
         private static void Log(string message)
         {
@@ -232,30 +234,62 @@ namespace MotorsportManagerCoop
         private static void OnHirePerson(Person __1)
         {
             int id = PersonId(__1);
-            if (id >= 0) { SendStrategyAction("contract_hire", id); Log("observed kind=contract_hire personId=" + id + " registry=" + _peopleById.Count); }
+            if (id >= 0) { SendStrategyAction("contract_hire", id); PublishAuthoritativeSave("contract_hire"); Log("observed kind=contract_hire personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnFirePerson(Person __0)
         {
             int id = PersonId(__0);
-            if (id >= 0) { SendStrategyAction("contract_fire", id); Log("observed kind=contract_fire personId=" + id + " registry=" + _peopleById.Count); }
+            if (id >= 0) { SendStrategyAction("contract_fire", id); PublishAuthoritativeSave("contract_fire"); Log("observed kind=contract_fire personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnRenewPerson(Person __0)
         {
             int id = PersonId(__0);
-            if (id >= 0) { SendStrategyAction("contract_renew", id); Log("observed kind=contract_renew personId=" + id + " registry=" + _peopleById.Count); }
+            if (id >= 0) { SendStrategyAction("contract_renew", id); PublishAuthoritativeSave("contract_renew"); Log("observed kind=contract_renew personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnProcessTransaction(Transaction __0)
         {
             if (__0 == null) return;
+            PublishAuthoritativeSave("finance_transaction");
             Log("observed kind=finance_transaction amount=" + __0.amount + " balance=" + __0.fundsAfterTransaction + " group=" + __0.group);
         }
 
         private static void OnSponsorPayment(bool __0)
         {
+            if (__0) PublishAuthoritativeSave("sponsor_payment");
             Log("observed kind=sponsor_upfront_payment accepted=" + __0);
+        }
+
+        private static void PublishAuthoritativeSave(string reason)
+        {
+            if (!_isHost || _applyRemoteAction || _authoritativeSaveInProgress) return;
+            EnsureSaveSystem();
+            if (_saveSystem == null) { Log("state_dirty reason=" + reason + " save_system=unavailable"); return; }
+            try
+            {
+                _authoritativeSaveInProgress = true;
+                _saveSystem.ManualSaveAs(Path.GetFileNameWithoutExtension(_snapshotSaveName));
+                Log("state_dirty reason=" + reason + " authoritative_save=requested");
+            }
+            catch (Exception ex) { Log("authoritative_save failed reason=" + reason + " error=" + ex.Message); }
+            finally { _authoritativeSaveInProgress = false; }
+        }
+
+        private static void EnsureSaveSystem()
+        {
+            // SaveSystem is a plain game service, not a UnityEngine.Object. It is
+            // captured by the ManualSave Harmony prefix when the game exposes it.
+        }
+
+        private static void OnSaveComplete()
+        {
+            if (!_isHost) return;
+            Log("authoritative_save completed; broadcasting snapshot");
+            lock (_hostLock)
+                foreach (TcpClient client in _hostClients.ToArray())
+                    if (client.Connected) try { SendSaveSnapshot(client.GetStream()); } catch { }
         }
 
         private static void OnPitCrewAssign(PitCrewMember __0, PitCrewMember __1)
@@ -306,6 +340,11 @@ namespace MotorsportManagerCoop
         private static void CaptureSaveSystem(SaveSystem __instance)
         {
             _saveSystem = __instance;
+            if (!_saveHooked)
+            {
+                _saveHooked = true;
+                _saveSystem.OnSaveComplete += OnSaveComplete;
+            }
         }
 
         private static void OnManualSave()
@@ -398,6 +437,7 @@ namespace MotorsportManagerCoop
         private static void OnGUI(UnityModManager.ModEntry modEntry)
         {
             if (!_enabled) return;
+            EnsureSaveSystem();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("LAN Coop", GUILayout.Width(100))) _window = !_window;
             GUILayout.Label(_status, GUILayout.Width(220));
