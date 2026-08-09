@@ -155,6 +155,9 @@ namespace MotorsportManagerCoop
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "LoadSaveWithName"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)));
+            _harmony.Patch(
+                AccessTools.Method(typeof(SaveSystem), "Load", new[] { typeof(SaveFileInfo), typeof(bool) }),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)));
             _harmony.Patch(AccessTools.Method(typeof(Game), "OnLoad"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnGameLoaded)));
             string autoRole = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
