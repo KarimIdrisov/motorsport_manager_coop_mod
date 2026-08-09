@@ -1,5 +1,6 @@
 using System;
 using System.Net.Sockets;
+using System.Net;
 using System.Text;
 using System.Threading;
 using System.Collections.Generic;
@@ -31,6 +32,9 @@ namespace MotorsportManagerCoop
         private static readonly object _incomingLock = new object();
         private static bool _applyRemoteAction;
         private static bool _isHost;
+        private static TcpListener _listener;
+        private static readonly List<TcpClient> _hostClients = new List<TcpClient>();
+        private static readonly object _hostLock = new object();
 
         public static bool Load(UnityModManager.ModEntry modEntry)
         {
@@ -71,12 +75,12 @@ namespace MotorsportManagerCoop
         {
             if (_applyRemoteAction) return;
             // __instance is captured by the prefix below before the postfix runs.
-            if (_stream == null) return;
+            if (_stream == null && !_isHost) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"id\":\"skip-sim\",\"kind\":\"play_skip_sim\",\"payload\":{}}\n");
-                _stream.Write(action, 0, action.Length);
+                SendPacket(action);
                 _status = "Sent: play/skip simulation";
             }
             catch { Disconnect(); }
@@ -84,12 +88,12 @@ namespace MotorsportManagerCoop
 
         private static void OnPauseOrPlaySkipSim()
         {
-            if (_applyRemoteAction || _stream == null) return;
+            if (_applyRemoteAction || (_stream == null && !_isHost)) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"id\":\"pause-play\",\"kind\":\"pause_or_play\",\"payload\":{}}\n");
-                _stream.Write(action, 0, action.Length);
+                SendPacket(action);
                 _status = "Sent: pause/play simulation";
             }
             catch { Disconnect(); }
@@ -117,7 +121,7 @@ namespace MotorsportManagerCoop
 
         private static void OnManualSave()
         {
-            if (_applyRemoteAction || _stream == null) return;
+            if (_applyRemoteAction || (_stream == null && !_isHost)) return;
             if (!_isHost)
             {
                 _status = "Only host may save";
@@ -127,7 +131,7 @@ namespace MotorsportManagerCoop
             {
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"kind\":\"manual_save\",\"value\":0}\n");
-                _stream.Write(action, 0, action.Length);
+                SendPacket(action);
                 _status = "Sent: manual save";
             }
             catch { Disconnect(); }
@@ -145,12 +149,12 @@ namespace MotorsportManagerCoop
 
         private static void SendStrategyAction(string kind, int value)
         {
-            if (_applyRemoteAction || _stream == null) return;
+            if (_applyRemoteAction || (_stream == null && !_isHost)) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"kind\":\"" + kind + "\",\"value\":" + value + "}\n");
-                _stream.Write(action, 0, action.Length);
+                SendPacket(action);
                 _status = "Sent: " + kind;
             }
             catch { Disconnect(); }
@@ -165,12 +169,12 @@ namespace MotorsportManagerCoop
 
         private static void OnGoToNextSession()
         {
-            if (_applyRemoteAction || _stream == null) return;
+            if (_applyRemoteAction || (_stream == null && !_isHost)) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"id\":\"next-session\",\"kind\":\"go_next_session\",\"payload\":{}}\n");
-                _stream.Write(action, 0, action.Length);
+                SendPacket(action);
                 _status = "Sent: next race session";
             }
             catch { Disconnect(); }
@@ -259,6 +263,7 @@ namespace MotorsportManagerCoop
             GUILayout.Label("Name");
             _name = GUILayout.TextField(_name);
             GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Host")) StartHost();
             if (GUILayout.Button("Join")) Connect();
             if (GUILayout.Button("Disconnect")) Disconnect();
             GUILayout.EndHorizontal();
@@ -284,6 +289,81 @@ namespace MotorsportManagerCoop
             }
             catch (Exception ex) { _status = "Connection failed: " + ex.Message; Disconnect(); }
         }
+
+        private static void StartHost()
+        {
+            Disconnect();
+            int port;
+            if (!Int32.TryParse(_port, out port)) { _status = "Invalid port"; return; }
+            try
+            {
+                _listener = new TcpListener(IPAddress.Any, port);
+                _listener.Start();
+                _isHost = true;
+                _status = "Hosting LAN on port " + port;
+                new Thread(HostLoop) { IsBackground = true }.Start();
+            }
+            catch (Exception ex) { _status = "Host failed: " + ex.Message; }
+        }
+
+        private static void HostLoop()
+        {
+            try
+            {
+                while (_listener != null)
+                {
+                    TcpClient client = _listener.AcceptTcpClient();
+                    lock (_hostLock) _hostClients.Add(client);
+                    new Thread(() => HostClientLoop(client)) { IsBackground = true }.Start();
+                }
+            }
+            catch { }
+        }
+
+        private static void HostClientLoop(TcpClient client)
+        {
+            try
+            {
+                NetworkStream stream = client.GetStream();
+                byte[] buffer = new byte[4096];
+                StringBuilder text = new StringBuilder();
+                while (client.Connected)
+                {
+                    int count = stream.Read(buffer, 0, buffer.Length);
+                    if (count <= 0) break;
+                    text.Append(Encoding.UTF8.GetString(buffer, 0, count));
+                    string all = text.ToString(); int end;
+                    while ((end = all.IndexOf('\n')) >= 0)
+                    {
+                        string line = all.Substring(0, end).Trim(); all = all.Substring(end + 1);
+                        if (line.IndexOf("\"type\":\"hello\"", StringComparison.Ordinal) >= 0)
+                            WritePacket(stream, Encoding.UTF8.GetBytes("{\"type\":\"welcome\",\"protocol\":0,\"role\":\"client\"}\n"));
+                        else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
+                            Broadcast(Encoding.UTF8.GetBytes(line + "\n"), client);
+                    }
+                    text.Length = 0; text.Append(all);
+                }
+            }
+            catch { }
+            finally { lock (_hostLock) _hostClients.Remove(client); client.Close(); }
+        }
+
+        private static void SendPacket(byte[] packet)
+        {
+            if (_isHost) { Broadcast(packet, null); return; }
+            if (_stream == null) return;
+            _stream.Write(packet, 0, packet.Length);
+        }
+
+        private static void Broadcast(byte[] packet, TcpClient except)
+        {
+            lock (_hostLock)
+                foreach (TcpClient client in _hostClients.ToArray())
+                    if (client != except && client.Connected) try { WritePacket(client.GetStream(), packet); } catch { }
+        }
+
+        private static void WritePacket(NetworkStream stream, byte[] packet)
+        { stream.Write(packet, 0, packet.Length); }
 
         private static void ReceiveLoop()
         {
@@ -313,6 +393,9 @@ namespace MotorsportManagerCoop
 
         private static void Disconnect()
         {
+            if (_listener != null) { try { _listener.Stop(); } catch { } _listener = null; }
+            lock (_hostLock) { foreach (TcpClient c in _hostClients) c.Close(); _hostClients.Clear(); }
+            _isHost = false;
             if (_stream != null) _stream.Close();
             if (_client != null) _client.Close();
             if (_receiveThread != null && _receiveThread.IsAlive) _receiveThread.Join(100);
