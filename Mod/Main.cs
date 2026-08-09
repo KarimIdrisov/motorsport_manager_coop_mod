@@ -89,6 +89,12 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "BuildTwoParts"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnBuildTwoParts)));
+            _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "HireNewPerson"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnHirePerson)));
+            _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "FirePerson"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnFirePerson)));
+            _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "RenewContractForPerson"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnRenewPerson)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SaveSystem), "ManualSave"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureSaveSystem)),
@@ -156,6 +162,30 @@ namespace MotorsportManagerCoop
         {
             SendStrategyAction("car_build_two_parts", __0);
             Log("observed kind=car_build_two_parts value=" + __0);
+        }
+
+        private static int PersonId(Person person)
+        {
+            try { return person == null ? -1 : person.GetPersonIndexInManager(); }
+            catch { return -1; }
+        }
+
+        private static void OnHirePerson(Person __1)
+        {
+            int id = PersonId(__1);
+            if (id >= 0) { SendStrategyAction("contract_hire", id); Log("observed kind=contract_hire personId=" + id); }
+        }
+
+        private static void OnFirePerson(Person __0)
+        {
+            int id = PersonId(__0);
+            if (id >= 0) { SendStrategyAction("contract_fire", id); Log("observed kind=contract_fire personId=" + id); }
+        }
+
+        private static void OnRenewPerson(Person __0)
+        {
+            int id = PersonId(__0);
+            if (id >= 0) { SendStrategyAction("contract_renew", id); Log("observed kind=contract_renew personId=" + id); }
         }
 
         private static void CaptureSaveSystem(SaveSystem __instance)
