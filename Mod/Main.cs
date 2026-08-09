@@ -32,8 +32,10 @@ namespace MotorsportManagerCoop
         private static CarPartDesign _carDesign;
         private static HQsBuilding_v1 _hqBuilding;
         private static SaveSystem _saveSystem;
+        private static GameStateManager _gameStateManager;
         private static Thread _receiveThread;
         private static readonly Queue<string> _incoming = new Queue<string>();
+        private static readonly Queue<string> _deferredRaceActions = new Queue<string>();
         private static readonly object _incomingLock = new object();
         private static bool _applyRemoteAction;
         private static bool _isHost;
@@ -66,6 +68,7 @@ namespace MotorsportManagerCoop
         private static bool _newCareerOpened;
         private static bool _attractIntroContinued;
         private static bool _movieIntroContinued;
+        private static bool _raceRuntimeReady;
 
         private static void Log(string message)
         {
@@ -101,6 +104,12 @@ namespace MotorsportManagerCoop
                 AccessTools.Method(typeof(RaceEventDetails), "GoToNextSession"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureRaceEvent)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnGoToNextSession)));
+            _harmony.Patch(
+                AccessTools.Method(typeof(GameStateManager), "LoadToRaceEvent"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureGameStateManager)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnLoadToRaceEvent)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionManager), "StartSession"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnRaceRuntimeReady)));
             _harmony.Patch(
                 AccessTools.Method(typeof(SessionStrategy), "SetTeamOrders"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
@@ -350,6 +359,25 @@ namespace MotorsportManagerCoop
             _raceEvent = __instance;
         }
 
+        private static void CaptureGameStateManager(GameStateManager __instance)
+        {
+            _gameStateManager = __instance;
+            _raceRuntimeReady = false;
+        }
+
+        private static void OnLoadToRaceEvent(GameStateManager.StateChangeType __0)
+        {
+            if (_applyRemoteAction || (_stream == null && !_isHost)) return;
+            SendRaceAction("load_race_event", -1, (int)__0);
+            Log("sent race event load state=" + __0);
+        }
+
+        private static void OnRaceRuntimeReady()
+        {
+            _raceRuntimeReady = true;
+            Log("race runtime ready deferred=" + _deferredRaceActions.Count);
+        }
+
         private static void CaptureStrategy(SessionStrategy __instance)
         {
             _strategy = __instance;
@@ -582,6 +610,13 @@ namespace MotorsportManagerCoop
             catch (Exception ex) { Log("save system discovery failed=" + ex.Message); }
         }
 
+        private static void EnsureGameStateManager()
+        {
+            if (_gameStateManager != null || App.instance == null) return;
+            try { _gameStateManager = App.instance.gameStateManager; }
+            catch { }
+        }
+
         private static void OnSaveComplete()
         {
             _authoritativeSaveInProgress = false;
@@ -753,6 +788,8 @@ namespace MotorsportManagerCoop
 
         private static void OnDrivingStyleChanged(DrivingStyle __instance, DrivingStyle.Mode __0)
         {
+            RacingVehicle vehicle = VehicleFromComponent(__instance);
+            if (vehicle == null || !vehicle.isPlayerDriver) return;
             int vehicleId = VehicleIdFromComponent(__instance);
             if (vehicleId >= 0) _drivingStylesByVehicle[vehicleId] = __instance;
             SendRaceAction("driving_style", vehicleId, (int)__0);
@@ -760,6 +797,8 @@ namespace MotorsportManagerCoop
 
         private static void OnEngineModeChanged(Fuel __instance, Fuel.EngineMode __0)
         {
+            RacingVehicle vehicle = VehicleFromComponent(__instance);
+            if (vehicle == null || !vehicle.isPlayerDriver) return;
             int vehicleId = VehicleIdFromComponent(__instance);
             if (vehicleId >= 0) _fuelByVehicle[vehicleId] = __instance;
             SendRaceAction("engine_mode", vehicleId, (int)__0);
@@ -767,6 +806,8 @@ namespace MotorsportManagerCoop
 
         private static void OnERSModeChanged(ERSController __instance, ERSController.Mode __0)
         {
+            RacingVehicle vehicle = VehicleFromComponent(__instance);
+            if (vehicle == null || !vehicle.isPlayerDriver) return;
             int vehicleId = VehicleIdFromComponent(__instance);
             if (vehicleId >= 0) _ersByVehicle[vehicleId] = __instance;
             SendRaceAction("ers_mode", vehicleId, (int)__0);
@@ -871,6 +912,26 @@ namespace MotorsportManagerCoop
             return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : fallback;
         }
 
+        private static bool IsDeferredRaceAction(string json)
+        {
+            return json.IndexOf("driving_style", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("engine_mode", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("ers_mode", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("team_orders", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("return_to_garage", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("pit_command", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("cancel_pit", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("apply_queue_orders", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("remove_queued_order", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("pit_fuel", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("pit_repair", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("pit_battery", StringComparison.Ordinal) >= 0 ||
+                   json.IndexOf("pit_tyres", StringComparison.Ordinal) >= 0;
+        }
+
         private static int ReadRevision(string json)
         {
             Match match = Regex.Match(json, "\\\"revision\\\"\\s*:\\s*(\\d+)");
@@ -902,6 +963,7 @@ namespace MotorsportManagerCoop
         {
             if (!_enabled) return;
             EnsureSaveSystem();
+            EnsureGameStateManager();
             if (_snapshotReady && _saveSystem != null)
             {
                 _snapshotReady = false;
@@ -921,7 +983,18 @@ namespace MotorsportManagerCoop
             GUILayout.Label(_status, GUILayout.Width(220));
             GUILayout.EndHorizontal();
             string incoming = null;
-            lock (_incomingLock) if (_incoming.Count > 0) incoming = _incoming.Dequeue();
+            lock (_incomingLock)
+            {
+                if (_raceRuntimeReady && _deferredRaceActions.Count > 0)
+                    incoming = _deferredRaceActions.Dequeue();
+                else if (_incoming.Count > 0)
+                    incoming = _incoming.Dequeue();
+                if (incoming != null && !_raceRuntimeReady && IsDeferredRaceAction(incoming))
+                {
+                    _deferredRaceActions.Enqueue(incoming);
+                    incoming = null;
+                }
+            }
             if (incoming != null && incoming.IndexOf("\"type\":\"welcome\"", StringComparison.Ordinal) >= 0)
             {
                 Log("processed welcome packet");
@@ -1019,6 +1092,21 @@ namespace MotorsportManagerCoop
                 _applyRemoteAction = true;
                 try { _raceEvent.GoToNextSession(); _status = "Applied remote next-session command"; }
                 catch (Exception ex) { _status = "Remote session change failed: " + ex.Message; }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null && incoming.IndexOf("load_race_event", StringComparison.Ordinal) >= 0)
+            {
+                EnsureGameStateManager();
+                _applyRemoteAction = true;
+                _raceRuntimeReady = false;
+                try
+                {
+                    if (_gameStateManager == null) throw new InvalidOperationException("GameStateManager unavailable");
+                    _gameStateManager.LoadToRaceEvent((GameStateManager.StateChangeType)ReadActionValue(incoming));
+                    _status = "Loading remote race event";
+                    Log("applied remote race event load");
+                }
+                catch (Exception ex) { _status = "Remote race load failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             int incomingTarget = incoming == null ? -1 : ReadActionTarget(incoming);
