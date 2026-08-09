@@ -57,7 +57,8 @@ const server = net.createServer((socket) => {
         }
         const action = { type: 'action', revision, from: socket.name,
           id: message.id, kind: message.kind, payload: message.payload || {},
-          value: message.value };
+          target: message.target, value: message.value, aux: message.aux,
+          flag: message.flag };
         send(socket, { type: 'action_ack', revision, id: message.id, kind: message.kind });
         broadcast(action, socket);
         continue;
