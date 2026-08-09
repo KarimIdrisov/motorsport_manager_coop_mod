@@ -466,6 +466,7 @@ namespace MotorsportManagerCoop
                 _status = "Host confirmed action";
             if (incoming != null && incoming.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
             {
+                Log("received broadcast action revision=" + ReadRevision(incoming));
                 int revision = ReadRevision(incoming);
                 if (revision > 0)
                 {
@@ -482,6 +483,7 @@ namespace MotorsportManagerCoop
             {
                 _lastRevision = ReadRevision(incoming);
                 _status = "Resync complete at revision " + _lastRevision;
+                Log("received resync snapshot revision=" + _lastRevision);
             }
             if (incoming != null && incoming.IndexOf("\"type\":\"save_begin\"", StringComparison.Ordinal) >= 0)
             {
@@ -510,6 +512,7 @@ namespace MotorsportManagerCoop
                     var method = typeof(SaveSystem).GetMethod("LoadSaveWithName");
                     if (method != null) method.Invoke(_saveSystem, new object[] { Path.GetFileNameWithoutExtension(_snapshotSaveName) });
                     _status = "Host save received and load requested";
+                    Log("received save snapshot name=" + _snapshotSaveName);
                 }
                 catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; }
             }
@@ -700,6 +703,8 @@ namespace MotorsportManagerCoop
                         }
                         else if (line.IndexOf("\"type\":\"action\"", StringComparison.Ordinal) >= 0)
                         {
+                            Match kindMatch = Regex.Match(line, "\\\"kind\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                            Log("received action kind=" + (kindMatch.Success ? kindMatch.Groups[1].Value : "unknown"));
                             int revision = Interlocked.Increment(ref _hostRevision);
                             string action = line.TrimEnd('}').TrimEnd() + ",\"revision\":" + revision + "}";
                             lock (_incomingLock) _incoming.Enqueue(action);
@@ -766,7 +771,11 @@ namespace MotorsportManagerCoop
                     {
                         string line = all.Substring(0, end).Trim();
                         all = all.Substring(end + 1);
-                        if (line.Length > 0) lock (_incomingLock) _incoming.Enqueue(line);
+                        if (line.Length > 0)
+                        {
+                            Log("network packet received type=" + (line.IndexOf("\"type\":\"") >= 0 ? line.Substring(line.IndexOf("\"type\":\"") + 8).Split('"')[1] : "unknown"));
+                            lock (_incomingLock) _incoming.Enqueue(line);
+                        }
                     }
                     text.Length = 0;
                     text.Append(all);
