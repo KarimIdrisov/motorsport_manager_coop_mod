@@ -78,6 +78,21 @@ internal static class Program
         log("Игра запущена.");
     }
 
+    internal static string[] GetSaveFiles()
+    {
+        string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Low", "Playsport Games", "Motorsport Manager", "Cloud", "Saves");
+        return Directory.Exists(dir) ? Directory.GetFiles(dir, "*.sav").OrderByDescending(File.GetLastWriteTimeUtc).ToArray() : Array.Empty<string>();
+    }
+
+    internal static string PrepareCoopSave(string source)
+    {
+        if (!File.Exists(source)) throw new FileNotFoundException("Сейв не найден", source);
+        string target = Path.Combine(Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source) + " Coop.sav");
+        if (File.Exists(target)) File.Copy(target, target + ".backup", true);
+        File.Copy(source, target, true);
+        return target;
+    }
+
     private static void EnsureLoader(Action<string> log)
     {
         string game = _settings.GamePath;
@@ -130,6 +145,7 @@ internal sealed class LauncherForm : Form
     private readonly TextBox _repo = new();
     private readonly TextBox _port = new();
     private readonly TextBox _log = new();
+    private readonly ComboBox _saves = new() { DropDownStyle = ComboBoxStyle.DropDownList };
 
     public LauncherForm()
     {
@@ -140,11 +156,17 @@ internal sealed class LauncherForm : Form
         Add(layout, "Путь к игре", _gamePath, 0, Program.Settings.GamePath);
         Add(layout, "Git URL", _repo, 1, Program.Settings.RepositoryUrl);
         Add(layout, "LAN порт", _port, 2, Program.Settings.ServerPort.ToString());
+        layout.Controls.Add(new Label { Text = "Кооп-сейв", AutoSize = true }, 0, 3);
+        _saves.Dock = DockStyle.Fill;
+        foreach (string save in Program.GetSaveFiles()) _saves.Items.Add(save);
+        if (_saves.Items.Count > 0) _saves.SelectedIndex = 0;
+        layout.Controls.Add(_saves, 1, 3);
         var update = new Button { Text = "Обновить мод" }; update.Click += (_, _) => Run(Update);
         var start = new Button { Text = "Обновить и запустить игру" }; start.Click += (_, _) => Run(Start);
-        layout.Controls.Add(update, 0, 3); layout.Controls.Add(start, 1, 3);
+        var prepare = new Button { Text = "Подготовить кооп-сейв" }; prepare.Click += (_, _) => PrepareSave();
+        layout.Controls.Add(update, 0, 4); layout.Controls.Add(start, 1, 4); layout.Controls.Add(prepare, 0, 5); layout.SetColumnSpan(prepare, 2);
         _log.Multiline = true; _log.ReadOnly = true; _log.ScrollBars = ScrollBars.Vertical; _log.Dock = DockStyle.Fill;
-        layout.Controls.Add(_log, 0, 4); layout.SetColumnSpan(_log, 2); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(_log, 0, 6); layout.SetColumnSpan(_log, 2); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(layout);
     }
 
@@ -155,5 +177,14 @@ internal sealed class LauncherForm : Form
     private void Run(Action<Action<string>> action) { try { Read(); action(Log); } catch (Exception ex) { Log("ОШИБКА: " + ex.Message); } }
     private void Update(Action<string> log) => log(Program.UpdateMod(log));
     private void Start(Action<string> log) { Program.UpdateMod(log); Program.StartGame(log); }
+    private void PrepareSave()
+    {
+        try
+        {
+            if (_saves.SelectedItem is not string source) { Log("Сейв не выбран."); return; }
+            Log("Подготовлен: " + Program.PrepareCoopSave(source));
+        }
+        catch (Exception ex) { Log("ОШИБКА: " + ex.Message); }
+    }
     private void Log(string message) => BeginInvoke(() => _log.AppendText(message + Environment.NewLine));
 }
