@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
+using System.Reflection;
 using UnityEngine;
 using UnityModManagerNet;
 using HarmonyLib;
@@ -50,6 +51,8 @@ namespace MotorsportManagerCoop
         private static readonly Dictionary<int, Person> _peopleById = new Dictionary<int, Person>();
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
+        private static bool _autoLoadRequested;
+        private static bool _introSkipped;
 
         private static void Log(string message)
         {
@@ -355,8 +358,27 @@ namespace MotorsportManagerCoop
 
         private static void EnsureSaveSystem()
         {
-            // SaveSystem is a plain game service, not a UnityEngine.Object. It is
-            // captured by the ManualSave Harmony prefix when the game exposes it.
+            if (_saveSystem != null || Game.instance == null) return;
+            try
+            {
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+                foreach (FieldInfo field in typeof(Game).GetFields(flags))
+                {
+                    if (field.FieldType != typeof(SaveSystem)) continue;
+                    object owner = field.IsStatic ? null : (object)Game.instance;
+                    CaptureSaveSystem((SaveSystem)field.GetValue(owner));
+                    if (_saveSystem != null) return;
+                }
+                foreach (PropertyInfo property in typeof(Game).GetProperties(flags))
+                {
+                    if (property.PropertyType != typeof(SaveSystem) || !property.CanRead) continue;
+                    MethodInfo getter = property.GetGetMethod(true);
+                    object owner = getter != null && getter.IsStatic ? null : (object)Game.instance;
+                    CaptureSaveSystem((SaveSystem)property.GetValue(owner, null));
+                    if (_saveSystem != null) return;
+                }
+            }
+            catch (Exception ex) { Log("save system discovery failed=" + ex.Message); }
         }
 
         private static void OnSaveComplete()
@@ -785,8 +807,23 @@ namespace MotorsportManagerCoop
 
         private static void OnUpdate(UnityModManager.ModEntry modEntry, float deltaTime)
         {
-            if (!_enabled || !_snapshotReady) return;
+            if (!_enabled) return;
+            SkipIntroScreens();
             EnsureSaveSystem();
+            if (!_autoLoadRequested && IsAutoMode() && _saveSystem != null && Game.instance != null)
+            {
+                _autoLoadRequested = true;
+                try
+                {
+                    _applyRemoteAction = true;
+                    _saveSystem.LoadSaveWithName(Path.GetFileNameWithoutExtension(_snapshotSaveName));
+                    _status = "Loading shared career save";
+                    Log("automatic shared save load requested name=" + _snapshotSaveName);
+                }
+                catch (Exception ex) { _autoLoadRequested = false; Log("automatic shared save load failed=" + ex.Message); }
+                finally { _applyRemoteAction = false; }
+            }
+            if (!_snapshotReady) return;
             if (_saveSystem == null) return;
             _snapshotReady = false;
             try
@@ -800,6 +837,30 @@ namespace MotorsportManagerCoop
             }
             catch (Exception ex) { _status = "Host save received; load failed: " + ex.Message; Log("snapshot load failed=" + ex.Message); }
             finally { _applyRemoteAction = false; }
+        }
+
+        private static bool IsAutoMode()
+        {
+            string role = Environment.GetEnvironmentVariable("MM_COOP_AUTOSTART");
+            return String.Equals(role, "host", StringComparison.OrdinalIgnoreCase) ||
+                   String.Equals(role, "client", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void SkipIntroScreens()
+        {
+            if (!IsAutoMode() || _introSkipped) return;
+            try
+            {
+                string scene = Application.loadedLevelName;
+                if (scene == "AttractIntroScreen" || scene == "MovieScreen" ||
+                    scene == "LegalScreen" || scene == "TitleLoadingScreen")
+                {
+                    _introSkipped = true;
+                    Application.LoadLevel("TitleScreen");
+                    Log("skipped intro scene=" + scene);
+                }
+            }
+            catch (Exception ex) { Log("intro skip failed=" + ex.Message); }
         }
 
         private static void Connect()
