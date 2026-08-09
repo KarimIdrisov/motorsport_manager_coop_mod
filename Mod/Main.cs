@@ -70,6 +70,10 @@ namespace MotorsportManagerCoop
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
+            PatchIntroScreen("AttractIntroScreen");
+            PatchIntroScreen("MovieScreen");
+            PatchIntroScreen("LegalScreen");
+            PatchIntroScreen("TitleLoadingScreen");
             _harmony.Patch(
                 AccessTools.Method(typeof(GameTimer), "PlaySkipSim"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
@@ -193,6 +197,31 @@ namespace MotorsportManagerCoop
                 new Thread(() => { Thread.Sleep(1500); Connect(); }) { IsBackground = true }.Start();
             }
             return true;
+        }
+
+        private static void PatchIntroScreen(string typeName)
+        {
+            try
+            {
+                Type type = AccessTools.TypeByName(typeName);
+                if (type == null) return;
+                MethodInfo start = AccessTools.Method(type, "Start");
+                if (start == null) return;
+                _harmony.Patch(start, postfix: new HarmonyMethod(typeof(Main), nameof(OnIntroScreenStarted)));
+                Log("intro hook installed type=" + typeName);
+            }
+            catch (Exception ex) { Log("intro hook failed type=" + typeName + " error=" + ex.Message); }
+        }
+
+        private static void OnIntroScreenStarted()
+        {
+            if (!IsAutoMode()) return;
+            try
+            {
+                Application.LoadLevel("TitleScreen");
+                Log("skipped intro screen via Harmony");
+            }
+            catch (Exception ex) { Log("intro Harmony skip failed=" + ex.Message); }
         }
 
         private static void OnPlaySkipSim()
