@@ -106,6 +106,15 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "BeginUpgrade"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnBeginUpgrade)));
+            _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "Build"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnHQBuildComplete)));
+            _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "UpgradeBuilding"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnHQUpgradeComplete)));
+            _harmony.Patch(AccessTools.Method(typeof(HQsBuilding_v1), "SetStaff"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnHQStaffChanged)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "HireNewPerson"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnHirePerson)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "FirePerson"),
@@ -225,6 +234,24 @@ namespace MotorsportManagerCoop
         {
             SendStrategyAction("hq_begin_upgrade", 1);
             Log("observed kind=hq_begin_upgrade");
+        }
+
+        private static void OnHQBuildComplete(bool __0)
+        {
+            PublishAuthoritativeSave("hq_build_complete");
+            Log("observed kind=hq_build_complete success=" + __0);
+        }
+
+        private static void OnHQUpgradeComplete(bool __0)
+        {
+            PublishAuthoritativeSave("hq_upgrade_complete");
+            Log("observed kind=hq_upgrade_complete success=" + __0);
+        }
+
+        private static void OnHQStaffChanged()
+        {
+            PublishAuthoritativeSave("hq_staff_changed");
+            Log("observed kind=hq_staff_changed");
         }
 
         private static void OnStartDesigning()
