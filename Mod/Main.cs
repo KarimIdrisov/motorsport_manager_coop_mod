@@ -70,10 +70,10 @@ namespace MotorsportManagerCoop
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
-            PatchIntroScreen("AttractIntroScreen");
-            PatchIntroScreen("MovieScreen");
-            PatchIntroScreen("LegalScreen");
-            PatchIntroScreen("TitleLoadingScreen");
+            PatchIntroScreen(typeof(AttractIntroScreen));
+            PatchIntroScreen(typeof(MovieScreen));
+            PatchIntroScreen(typeof(LegalScreen));
+            PatchIntroScreen(typeof(TitleLoadingScreen));
             _harmony.Patch(
                 AccessTools.Method(typeof(GameTimer), "PlaySkipSim"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureTimer)),
@@ -199,18 +199,17 @@ namespace MotorsportManagerCoop
             return true;
         }
 
-        private static void PatchIntroScreen(string typeName)
+        private static void PatchIntroScreen(Type type)
         {
             try
             {
-                Type type = AccessTools.TypeByName(typeName);
                 if (type == null) return;
                 MethodInfo start = AccessTools.Method(type, "Start");
                 if (start == null) return;
                 _harmony.Patch(start, postfix: new HarmonyMethod(typeof(Main), nameof(OnIntroScreenStarted)));
-                Log("intro hook installed type=" + typeName);
+                Log("intro hook installed type=" + type.Name);
             }
-            catch (Exception ex) { Log("intro hook failed type=" + typeName + " error=" + ex.Message); }
+            catch (Exception ex) { Log("intro hook failed type=" + (type == null ? "-" : type.Name) + " error=" + ex.Message); }
         }
 
         private static void OnIntroScreenStarted()
