@@ -43,10 +43,16 @@ namespace MotorsportManagerCoop
         private static readonly object _hostLock = new object();
         private static int _hostRevision;
 
+        private static void Log(string message)
+        {
+            try { if (_mod != null) _mod.Logger.Log("[COOP] " + message); } catch { }
+        }
+
         public static bool Load(UnityModManager.ModEntry modEntry)
         {
             _mod = modEntry;
             _enabled = true;
+            Log("load version=0.1.0");
             modEntry.OnGUI = OnGUI;
             modEntry.OnToggle = OnToggle;
             modEntry.OnUnload = OnUnload;
@@ -88,6 +94,7 @@ namespace MotorsportManagerCoop
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"id\":\"skip-sim\",\"kind\":\"play_skip_sim\",\"payload\":{}}\n");
                 SendPacket(action);
+                Log("send kind=play_skip_sim");
                 _status = "Sent: play/skip simulation";
             }
             catch { Disconnect(); }
@@ -101,6 +108,7 @@ namespace MotorsportManagerCoop
                 byte[] action = Encoding.UTF8.GetBytes(
                     "{\"type\":\"action\",\"id\":\"pause-play\",\"kind\":\"pause_or_play\",\"payload\":{}}\n");
                 SendPacket(action);
+                Log("send kind=pause_or_play");
                 _status = "Sent: pause/play simulation";
             }
             catch { Disconnect(); }
