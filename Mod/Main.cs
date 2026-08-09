@@ -49,6 +49,10 @@ namespace MotorsportManagerCoop
         private static readonly object _hostLock = new object();
         private static int _hostRevision;
         private static readonly Dictionary<int, Person> _peopleById = new Dictionary<int, Person>();
+        private static readonly Dictionary<int, SessionStrategy> _strategiesByVehicle = new Dictionary<int, SessionStrategy>();
+        private static readonly Dictionary<int, DrivingStyle> _drivingStylesByVehicle = new Dictionary<int, DrivingStyle>();
+        private static readonly Dictionary<int, Fuel> _fuelByVehicle = new Dictionary<int, Fuel>();
+        private static readonly Dictionary<int, ERSController> _ersByVehicle = new Dictionary<int, ERSController>();
         private static bool _saveHooked;
         private static bool _authoritativeSaveInProgress;
         private static bool _autoLoadRequested;
@@ -117,6 +121,14 @@ namespace MotorsportManagerCoop
             _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "RemoveQueuedOrder"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnRemoveQueuedOrder)));
+            _harmony.Patch(AccessTools.Method(typeof(SessionStrategy), "UpdateDrivingStyleAndEngineModes"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(CaptureStrategy)));
+            _harmony.Patch(AccessTools.Method(typeof(DrivingStyle), "SetDrivingStyle"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnDrivingStyleChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(Fuel), "SetEngineMode"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnEngineModeChanged)));
+            _harmony.Patch(AccessTools.Method(typeof(ERSController), "SetERSMode"),
+                postfix: new HarmonyMethod(typeof(Main), nameof(OnERSModeChanged)));
             _harmony.Patch(AccessTools.Method(typeof(CarPartDesign), "StartDesigning"),
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureCarDesign)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnStartDesigning)));
@@ -138,22 +150,30 @@ namespace MotorsportManagerCoop
                 prefix: new HarmonyMethod(typeof(Main), nameof(CaptureHQBuilding)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnHQUpgradeComplete)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "HireNewPerson"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnHirePerson)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "FirePerson"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnFirePerson)));
             _harmony.Patch(AccessTools.Method(typeof(ContractManagerTeam), "RenewContractForPerson"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnRenewPerson)));
             _harmony.Patch(AccessTools.Method(typeof(Finance), "ProcessTransaction"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnProcessTransaction)));
             _harmony.Patch(AccessTools.Method(typeof(ContractSponsor), "PayUpfrontSponsorship"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnSponsorPayment)));
             _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "AssignRoleToPitCrewMember"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewAssign)));
             _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "SwapActivePitCrewMembers"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewSwap)));
             _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "SignupPitCrewMember"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewSignup)));
             _harmony.Patch(AccessTools.Method(typeof(PitCrewController), "FirePitCrewMember"),
+                prefix: new HarmonyMethod(typeof(Main), nameof(HostOnlyCareerAction)),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnPitCrewFire)));
             _harmony.Patch(AccessTools.Method(typeof(SimulationUtility), "SimulatePractice"),
                 postfix: new HarmonyMethod(typeof(Main), nameof(OnPracticeSimulated)));
@@ -266,27 +286,80 @@ namespace MotorsportManagerCoop
         private static void CaptureStrategy(SessionStrategy __instance)
         {
             _strategy = __instance;
+            int vehicleId = VehicleIdFromComponent(__instance);
+            if (vehicleId < 0) return;
+            _strategiesByVehicle[vehicleId] = __instance;
+            try
+            {
+                RacingVehicle vehicle = VehicleFromComponent(__instance);
+                if (vehicle == null) return;
+                FieldInfo ersField = AccessTools.Field(typeof(RacingVehicle), "mERSController");
+                ERSController ers = ersField == null ? null : ersField.GetValue(vehicle) as ERSController;
+                if (ers != null) _ersByVehicle[vehicleId] = ers;
+                FieldInfo performanceField = AccessTools.Field(typeof(RacingVehicle), "mPerformance");
+                object performance = performanceField == null ? null : performanceField.GetValue(vehicle);
+                if (performance == null) return;
+                FieldInfo drivingField = AccessTools.Field(performance.GetType(), "mDrivingStyle");
+                FieldInfo fuelField = AccessTools.Field(performance.GetType(), "mFuel");
+                DrivingStyle driving = drivingField == null ? null : drivingField.GetValue(performance) as DrivingStyle;
+                Fuel fuel = fuelField == null ? null : fuelField.GetValue(performance) as Fuel;
+                if (driving != null) _drivingStylesByVehicle[vehicleId] = driving;
+                if (fuel != null) _fuelByVehicle[vehicleId] = fuel;
+            }
+            catch { }
         }
 
-        private static void CaptureCarDesign(CarPartDesign __instance)
+        private static bool CaptureCarDesign(CarPartDesign __instance)
         {
             _carDesign = __instance;
+            return HostOnlyCareerAction();
         }
 
-        private static void CaptureHQBuilding(HQsBuilding_v1 __instance)
+        private static bool CaptureHQBuilding(HQsBuilding_v1 __instance)
         {
             _hqBuilding = __instance;
+            return HostOnlyCareerAction();
+        }
+
+        private static bool HostOnlyCareerAction()
+        {
+            bool allowed = _isHost || _stream == null;
+            if (!allowed)
+            {
+                _status = "This career action is Host-only";
+                Log("blocked Host-only career action on client");
+            }
+            return allowed;
+        }
+
+        private static int VehicleIdFromComponent(object component)
+        {
+            RacingVehicle vehicle = VehicleFromComponent(component);
+            return vehicle == null ? -1 : vehicle.id;
+        }
+
+        private static RacingVehicle VehicleFromComponent(object component)
+        {
+            if (component == null) return null;
+            try
+            {
+                FieldInfo vehicleField = AccessTools.Field(component.GetType(), "mVehicle");
+                return vehicleField == null ? null : vehicleField.GetValue(component) as RacingVehicle;
+            }
+            catch { return null; }
         }
 
         private static void OnBeginBuilding()
         {
-            SendStrategyAction("hq_begin_build", 1);
+            if (!_isHost) return;
+            PublishAuthoritativeSave("hq_begin_build");
             Log("observed kind=hq_begin_build");
         }
 
         private static void OnBeginUpgrade()
         {
-            SendStrategyAction("hq_begin_upgrade", 1);
+            if (!_isHost) return;
+            PublishAuthoritativeSave("hq_begin_upgrade");
             Log("observed kind=hq_begin_upgrade");
         }
 
@@ -304,13 +377,15 @@ namespace MotorsportManagerCoop
 
         private static void OnStartDesigning()
         {
-            SendStrategyAction("car_design_start", 0);
+            if (!_isHost) return;
+            PublishAuthoritativeSave("car_design_start");
             Log("observed kind=car_design_start");
         }
 
         private static void OnBuildTwoParts(int __0)
         {
-            SendStrategyAction("car_build_two_parts", __0);
+            if (!_isHost) return;
+            PublishAuthoritativeSave("car_build_two_parts");
             Log("observed kind=car_build_two_parts value=" + __0);
         }
 
@@ -340,20 +415,23 @@ namespace MotorsportManagerCoop
 
         private static void OnHirePerson(Person __1)
         {
+            if (!_isHost) return;
             int id = PersonId(__1);
-            if (id >= 0) { SendStrategyAction("contract_hire", id); PublishAuthoritativeSave("contract_hire"); Log("observed kind=contract_hire personId=" + id + " registry=" + _peopleById.Count); }
+            if (id >= 0) { PublishAuthoritativeSave("contract_hire"); Log("observed kind=contract_hire personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnFirePerson(Person __0)
         {
+            if (!_isHost) return;
             int id = PersonId(__0);
-            if (id >= 0) { SendStrategyAction("contract_fire", id); PublishAuthoritativeSave("contract_fire"); Log("observed kind=contract_fire personId=" + id + " registry=" + _peopleById.Count); }
+            if (id >= 0) { PublishAuthoritativeSave("contract_fire"); Log("observed kind=contract_fire personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnRenewPerson(Person __0)
         {
+            if (!_isHost) return;
             int id = PersonId(__0);
-            if (id >= 0) { SendStrategyAction("contract_renew", id); PublishAuthoritativeSave("contract_renew"); Log("observed kind=contract_renew personId=" + id + " registry=" + _peopleById.Count); }
+            if (id >= 0) { PublishAuthoritativeSave("contract_renew"); Log("observed kind=contract_renew personId=" + id + " registry=" + _peopleById.Count); }
         }
 
         private static void OnProcessTransaction(Transaction __0)
@@ -365,7 +443,8 @@ namespace MotorsportManagerCoop
 
         private static void OnSponsorPayment(bool __0)
         {
-            if (__0) { SendStrategyAction("sponsor_payment", 1); PublishAuthoritativeSave("sponsor_payment"); }
+            if (!_isHost) return;
+            if (__0) PublishAuthoritativeSave("sponsor_payment");
             Log("observed kind=sponsor_upfront_payment accepted=" + __0);
         }
 
@@ -564,6 +643,27 @@ namespace MotorsportManagerCoop
             Log("observed kind=ordered_lap_count value=" + __0);
         }
 
+        private static void OnDrivingStyleChanged(DrivingStyle __instance, DrivingStyle.Mode __0)
+        {
+            int vehicleId = VehicleIdFromComponent(__instance);
+            if (vehicleId >= 0) _drivingStylesByVehicle[vehicleId] = __instance;
+            SendRaceAction("driving_style", vehicleId, (int)__0);
+        }
+
+        private static void OnEngineModeChanged(Fuel __instance, Fuel.EngineMode __0)
+        {
+            int vehicleId = VehicleIdFromComponent(__instance);
+            if (vehicleId >= 0) _fuelByVehicle[vehicleId] = __instance;
+            SendRaceAction("engine_mode", vehicleId, (int)__0);
+        }
+
+        private static void OnERSModeChanged(ERSController __instance, ERSController.Mode __0)
+        {
+            int vehicleId = VehicleIdFromComponent(__instance);
+            if (vehicleId >= 0) _ersByVehicle[vehicleId] = __instance;
+            SendRaceAction("ers_mode", vehicleId, (int)__0);
+        }
+
         private static void OnSendOutOnTrack() { SendStrategyAction("send_out_on_track", 0); }
         private static void OnReturnToGarage() { SendStrategyAction("return_to_garage", 0); }
         private static void OnPitCommand() { SendStrategyAction("pit_command", 0); }
@@ -573,13 +673,19 @@ namespace MotorsportManagerCoop
 
         private static void SendStrategyAction(string kind, int value)
         {
+            SendRaceAction(kind, VehicleIdFromComponent(_strategy), value);
+        }
+
+        private static void SendRaceAction(string kind, int vehicleId, int value)
+        {
             if (_applyRemoteAction || (_stream == null && !_isHost)) return;
             try
             {
                 byte[] action = Encoding.UTF8.GetBytes(
-                    "{\"type\":\"action\",\"kind\":\"" + kind + "\",\"value\":" + value + "}\n");
+                    "{\"type\":\"action\",\"kind\":\"" + kind + "\",\"target\":" + vehicleId + ",\"value\":" + value + "}\n");
                 SendPacket(action);
-                _status = "Sent: " + kind;
+                _status = "Sent: " + kind + " vehicle=" + vehicleId;
+                Log("sent race action kind=" + kind + " vehicle=" + vehicleId + " value=" + value);
             }
             catch { Disconnect(); }
         }
@@ -589,6 +695,13 @@ namespace MotorsportManagerCoop
             Match match = Regex.Match(json, "\\\"value\\\"\\s*:\\s*(-?\\d+)");
             int value;
             return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : 0;
+        }
+
+        private static int ReadActionTarget(string json)
+        {
+            Match match = Regex.Match(json, "\\\"target\\\"\\s*:\\s*(-?\\d+)");
+            int value;
+            return match.Success && Int32.TryParse(match.Groups[1].Value, out value) ? value : -1;
         }
 
         private static int ReadRevision(string json)
@@ -741,7 +854,11 @@ namespace MotorsportManagerCoop
                 catch (Exception ex) { _status = "Remote session change failed: " + ex.Message; }
                 finally { _applyRemoteAction = false; }
             }
-            if (incoming != null && _strategy != null &&
+            int incomingTarget = incoming == null ? -1 : ReadActionTarget(incoming);
+            SessionStrategy targetStrategy = null;
+            if (incomingTarget >= 0) _strategiesByVehicle.TryGetValue(incomingTarget, out targetStrategy);
+            if (targetStrategy == null) targetStrategy = _strategy;
+            if (incoming != null && targetStrategy != null &&
                 (incoming.IndexOf("team_orders", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0 ||
@@ -757,26 +874,59 @@ namespace MotorsportManagerCoop
                 {
                     int value = ReadActionValue(incoming);
                     if (incoming.IndexOf("team_orders", StringComparison.Ordinal) >= 0)
-                        _strategy.SetTeamOrders((SessionStrategy.TeamOrders)value);
+                        targetStrategy.SetTeamOrders((SessionStrategy.TeamOrders)value);
                     else if (incoming.IndexOf("pit_strategy", StringComparison.Ordinal) >= 0)
-                        _strategy.SetPitStrategy((SessionStrategy.PitStrategy)value);
+                        targetStrategy.SetPitStrategy((SessionStrategy.PitStrategy)value);
                     else if (incoming.IndexOf("ordered_lap_count", StringComparison.Ordinal) >= 0)
-                        _strategy.SetOrderedLapCount(value);
+                        targetStrategy.SetOrderedLapCount(value);
                     else if (incoming.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0)
-                        _strategy.SendOutOnTrack();
+                        targetStrategy.SendOutOnTrack();
                     else if (incoming.IndexOf("return_to_garage", StringComparison.Ordinal) >= 0)
-                        _strategy.ReturnToGarage();
+                        targetStrategy.ReturnToGarage();
                     else if (incoming.IndexOf("pit_command", StringComparison.Ordinal) >= 0)
-                        _strategy.Pit();
+                        targetStrategy.Pit();
                     else if (incoming.IndexOf("cancel_pit", StringComparison.Ordinal) >= 0)
-                        _strategy.CancelPit();
+                        targetStrategy.CancelPit();
                     else if (incoming.IndexOf("apply_queue_orders", StringComparison.Ordinal) >= 0)
-                        _strategy.ApplyQueueOrders();
+                        targetStrategy.ApplyQueueOrders();
                     else
-                        _strategy.RemoveQueuedOrder();
-                    _status = "Applied remote race strategy";
+                        targetStrategy.RemoveQueuedOrder();
+                    _status = "Applied remote race strategy vehicle=" + incomingTarget;
                 }
                 catch (Exception ex) { _status = "Remote strategy failed: " + ex.Message; }
+                finally { _applyRemoteAction = false; }
+            }
+            if (incoming != null &&
+                (incoming.IndexOf("driving_style", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("engine_mode", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("ers_mode", StringComparison.Ordinal) >= 0))
+            {
+                _applyRemoteAction = true;
+                try
+                {
+                    int value = ReadActionValue(incoming);
+                    if (incoming.IndexOf("driving_style", StringComparison.Ordinal) >= 0)
+                    {
+                        DrivingStyle drivingStyle;
+                        if (!_drivingStylesByVehicle.TryGetValue(incomingTarget, out drivingStyle)) throw new InvalidOperationException("DrivingStyle target unavailable");
+                        drivingStyle.SetDrivingStyle((DrivingStyle.Mode)value);
+                    }
+                    else if (incoming.IndexOf("engine_mode", StringComparison.Ordinal) >= 0)
+                    {
+                        Fuel fuel;
+                        if (!_fuelByVehicle.TryGetValue(incomingTarget, out fuel)) throw new InvalidOperationException("Fuel target unavailable");
+                        fuel.SetEngineMode((Fuel.EngineMode)value, true);
+                    }
+                    else
+                    {
+                        ERSController ers;
+                        if (!_ersByVehicle.TryGetValue(incomingTarget, out ers)) throw new InvalidOperationException("ERS target unavailable");
+                        ers.SetERSMode((ERSController.Mode)value);
+                    }
+                    _status = "Applied remote driving mode vehicle=" + incomingTarget;
+                    Log("applied remote driving mode vehicle=" + incomingTarget + " value=" + value);
+                }
+                catch (Exception ex) { _status = "Remote driving mode failed: " + ex.Message; Log(_status); }
                 finally { _applyRemoteAction = false; }
             }
             if (incoming != null && incoming.IndexOf("simulation_speed", StringComparison.Ordinal) >= 0 && _timer != null)
