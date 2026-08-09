@@ -71,7 +71,6 @@ namespace MotorsportManagerCoop
             modEntry.OnUnload = OnUnload;
             _harmony = new Harmony("codex.motorsportmanager.coop");
             PatchIntroScreen(typeof(AttractIntroScreen), "OnEnter");
-            PatchIntroScreen(typeof(MovieScreen), "OnEnter");
             PatchIntroScreen(typeof(BaseMovieScreen), "OnStart");
             PatchIntroScreen(typeof(LegalScreen), "OnEnter");
             PatchIntroScreen(typeof(TitleLoadingScreen), "OnEnter");
@@ -387,9 +386,19 @@ namespace MotorsportManagerCoop
 
         private static void EnsureSaveSystem()
         {
-            if (_saveSystem != null || Game.instance == null) return;
+            if (_saveSystem != null) return;
             try
             {
+                if (App.instance != null)
+                {
+                    FieldInfo appSave = AccessTools.Field(typeof(App), "saveSystem");
+                    if (appSave != null)
+                    {
+                        CaptureSaveSystem((SaveSystem)appSave.GetValue(App.instance));
+                        if (_saveSystem != null) return;
+                    }
+                }
+                if (Game.instance == null) return;
                 const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
                 foreach (FieldInfo field in typeof(Game).GetFields(flags))
                 {
