@@ -136,7 +136,9 @@ internal sealed class RaceControlPanel : UserControl
     private readonly ComboBox _driver = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = 300 };
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, SizeMode = TabSizeMode.Fixed, ItemSize = new Size(170, 38) };
     private readonly TrackBar[] _setupBars = new TrackBar[7];
+    private readonly Label[] _setupValues = new Label[7];
     private readonly List<ComboBox> _tyreSelectors = new();
+    private ComboBox? _practiceProgram;
     private TcpClient? _client; private StreamWriter? _writer; private CancellationTokenSource? _stop;
     private JsonElement? _latestTelemetry;
     private readonly Label _testState = new() { AutoSize = true, ForeColor = DashboardForm.UiMuted };
@@ -171,40 +173,82 @@ internal sealed class RaceControlPanel : UserControl
         _tabs.Appearance = TabAppearance.Normal; _tabs.Controls.Add(Page("Практика", PracticeControls())); _tabs.Controls.Add(Page("Квалификация", QualifyingControls())); _tabs.Controls.Add(Page("Гонка", RaceControls())); return _tabs;
     }
     private TabPage Page(string title, Control controls) { var page = new TabPage(title) { BackColor = DashboardForm.UiSurface, ForeColor = DashboardForm.UiText, Padding = new Padding(18) }; controls.Dock = DockStyle.Fill; page.Controls.Add(controls); return page; }
-    private Control PracticeControls() => Sections(SetupSection(), StintSection(), ModeSection(), EngineSection(), Row(("НА ТРАССУ", "send_out_on_track", 0), ("В ГАРАЖ", "return_to_garage", 0)), SpeedSection());
-    private Control QualifyingControls() => Sections(StintSection(), ModeSection(), EngineSection(), Row(("НА ТРАССУ", "send_out_on_track", 0), ("В ГАРАЖ", "return_to_garage", 0), ("ПИТ", "pit_command", 0)), SpeedSection());
+    private Control PracticeControls()
+    {
+        var layout = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, Dock = DockStyle.Fill, BackColor = DashboardForm.UiSurface };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58)); layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        layout.Controls.Add(SetupSection(), 0, 0);
+        var commands = Sections(PracticeStintSection(), CompactCommandGroup("РЕЖИМ ШИН", ("АТАКА", "driving_style", 0), ("PUSH", "driving_style", 1), ("НЕЙТРАЛЬНО", "driving_style", 2), ("БЕРЕЧЬ", "driving_style", 3)), CompactCommandGroup("ДВИГАТЕЛЬ", ("ОБГОН", "engine_mode", 1), ("ВЫСОКИЙ", "engine_mode", 2), ("СРЕДНИЙ", "engine_mode", 3), ("НИЗКИЙ", "engine_mode", 4)), CompactCommandGroup("СЕССИЯ", ("ВЫПУСТИТЬ", "send_out_on_track", 0), ("В ГАРАЖ", "return_to_garage", 0), ("ПАУЗА / ПУСК", "pause_or_play", 0), ("1×", "simulation_speed", 0), ("2×", "simulation_speed", 1), ("4×", "simulation_speed", 2)));
+        commands.Dock = DockStyle.Fill; layout.Controls.Add(commands, 1, 0);
+        return layout;
+    }
+    private Control QualifyingControls() => Sections(QualifyingStintSection(), ModeSection(), EngineSection(), Row(("НА ТРАССУ", "send_out_on_track", 0), ("В ГАРАЖ", "return_to_garage", 0), ("ПИТ", "pit_command", 0)), SpeedSection());
     private Control RaceControls() => Sections(ModeSection(), EngineSection(), Row(("ERS: ЗАРЯД", "ers_mode", 0), ("ERS: ГИБРИД", "ers_mode", 1), ("ERS: МОЩНОСТЬ", "ers_mode", 2)), Row(("ПИТ-СТОП", "pit_command", 0), ("ОТМЕНИТЬ ПИТ", "cancel_pit", 0), ("РЕМОНТ", "pit_repair", 1)), SpeedSection());
     private Control ModeSection() => Row(("АТАКА", "driving_style", 0), ("PUSH", "driving_style", 1), ("НЕЙТРАЛЬНО", "driving_style", 2), ("БЕРЕЧЬ", "driving_style", 3), ("ОТСТУПАТЬ", "driving_style", 4));
     private Control EngineSection() => Row(("СУПЕР-ОБГОН", "engine_mode", 0), ("ОБГОН", "engine_mode", 1), ("ВЫСОКИЙ", "engine_mode", 2), ("СРЕДНИЙ", "engine_mode", 3), ("НИЗКИЙ", "engine_mode", 4));
     private Control SpeedSection() => Row(("ПАУЗА / ПУСК", "pause_or_play", 0), ("1×", "simulation_speed", 0), ("2×", "simulation_speed", 1), ("4×", "simulation_speed", 2));
     private Control SetupSection()
     {
-        string[] names = { "Давление шин", "Развал", "Подвеска", "Передаточные числа", "Переднее крыло", "Заднее крыло", "Балласт" };
-        var grid = new TableLayoutPanel { Width = 900, Height = 245, ColumnCount = 2, RowCount = 8, BackColor = DashboardForm.UiSurface, Margin = new Padding(0, 0, 0, 14) };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < names.Length; i++)
-        {
-            int option = i; grid.Controls.Add(new Label { Text = names[i], ForeColor = DashboardForm.UiMuted, AutoSize = true, Padding = new Padding(0, 7, 0, 0) }, 0, i);
-            var bar = new TrackBar { Minimum = 0, Maximum = 100, TickFrequency = 10, Width = 650, BackColor = DashboardForm.UiSurface };
-            bar.MouseUp += (_, _) => Send("setup_value", bar.Value * 10, option); _setupBars[i] = bar; grid.Controls.Add(bar, 1, i);
-        }
-        var apply = DashboardForm.ActionButton("ПРИМЕНИТЬ НАСТРОЙКИ БОЛИДА", DashboardForm.UiAccent, Color.FromArgb(8, 25, 15)); apply.Click += (_, _) => Send("setup_apply", 0); grid.Controls.Add(apply, 1, 7); return grid;
+        var panel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Dock = DockStyle.Fill, Padding = new Padding(0, 0, 18, 0), BackColor = DashboardForm.UiSurface };
+        panel.Controls.Add(new Label { Text = "НАСТРОЙКА БОЛИДА", Font = new Font("Segoe UI Semibold", 16f), ForeColor = DashboardForm.UiText, AutoSize = true, Margin = new Padding(0, 0, 0, 4) });
+        panel.Controls.Add(new Label { Text = "Текущие значения синхронизированы с машиной Host", ForeColor = DashboardForm.UiMuted, AutoSize = true, Margin = new Padding(0, 0, 0, 18) });
+        panel.Controls.Add(SetupGroup("АЭРОДИНАМИКА", new[] { (4, "Переднее крыло", "Низкая прижимная сила", "Высокая прижимная сила"), (5, "Заднее крыло", "Скорость", "Стабильность") }));
+        panel.Controls.Add(SetupGroup("СКОРОСТЬ", new[] { (3, "Передаточные числа", "Ускорение", "Максимальная скорость") }));
+        panel.Controls.Add(SetupGroup("УПРАВЛЯЕМОСТЬ", new[] { (0, "Давление шин", "Ниже", "Выше"), (1, "Развал колёс", "Меньше", "Больше"), (2, "Жёсткость подвески", "Мягче", "Жёстче"), (6, "Распределение балласта", "Вперёд", "Назад") }));
+        var apply = DashboardForm.ActionButton("СОХРАНИТЬ НАСТРОЙКУ", DashboardForm.UiRaised, DashboardForm.UiText); apply.Width = 560; apply.Height = 42; apply.Click += (_, _) => Send("setup_apply", 0); panel.Controls.Add(apply); return panel;
     }
-    private Control StintSection()
+
+    private Control SetupGroup(string title, (int Option, string Name, string Left, string Right)[] entries)
     {
-        var row = new FlowLayoutPanel { Width = 900, Height = 62, Margin = new Padding(0, 0, 0, 12), BackColor = DashboardForm.UiSurface };
-        row.Controls.Add(new Label { Text = "Резина", ForeColor = DashboardForm.UiMuted, AutoSize = true, Padding = new Padding(0, 11, 6, 0) });
-        var tyres = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = 220, BackColor = DashboardForm.UiRaised, ForeColor = DashboardForm.UiText, Margin = new Padding(4, 7, 14, 0) }; _tyreSelectors.Add(tyres); row.Controls.Add(tyres);
-        row.Controls.Add(new Label { Text = "Кругов в программе", ForeColor = DashboardForm.UiMuted, AutoSize = true, Padding = new Padding(0, 11, 6, 0) });
-        var laps = new NumericUpDown { Minimum = 1, Maximum = 30, Value = 5, Width = 64, BackColor = DashboardForm.UiRaised, ForeColor = DashboardForm.UiText, Margin = new Padding(4, 7, 14, 0) }; row.Controls.Add(laps);
-        var apply = DashboardForm.ActionButton("ПРИМЕНИТЬ ПРОГРАММУ", DashboardForm.UiAccent, Color.FromArgb(8, 25, 15));
-        apply.Click += (_, _) =>
+        var group = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Width = 570, AutoSize = true, BackColor = DashboardForm.UiRaised, Padding = new Padding(16), Margin = new Padding(0, 0, 0, 12) };
+        group.Controls.Add(new Label { Text = title, Font = new Font("Segoe UI Semibold", 10f), ForeColor = DashboardForm.UiAccent, AutoSize = true, Margin = new Padding(0, 0, 0, 8) });
+        foreach (var entry in entries)
         {
-            if (tyres.SelectedItem is TyreChoice tyre) Send("pit_tyres", tyre.Option, tyre.Index);
-            Send("pit_fuel", (int)laps.Value + 2);
-            Send("ordered_lap_count", (int)laps.Value);
-        };
-        row.Controls.Add(apply); return row;
+            var line = new TableLayoutPanel { Width = 530, Height = 66, ColumnCount = 3, RowCount = 2, Margin = new Padding(0, 0, 0, 5) };
+            line.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105)); line.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); line.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48));
+            line.Controls.Add(new Label { Text = entry.Name, ForeColor = DashboardForm.UiText, AutoSize = true, Padding = new Padding(0, 8, 0, 0) }, 0, 0);
+            var bar = new TrackBar { Minimum = 0, Maximum = 100, TickFrequency = 10, Dock = DockStyle.Fill, BackColor = DashboardForm.UiRaised };
+            int option = entry.Option; bar.ValueChanged += (_, _) => _setupValues[option].Text = bar.Value + "%"; bar.MouseUp += (_, _) => Send("setup_value", bar.Value * 10, option); _setupBars[option] = bar; line.Controls.Add(bar, 1, 0);
+            var value = new Label { Text = "—", ForeColor = DashboardForm.UiText, AutoSize = true, Padding = new Padding(0, 8, 0, 0) }; _setupValues[option] = value; line.Controls.Add(value, 2, 0);
+            var hints = new Label { Text = entry.Left + "                                      " + entry.Right, ForeColor = DashboardForm.UiMuted, AutoSize = true }; line.Controls.Add(hints, 1, 1);
+            group.Controls.Add(line);
+        }
+        return group;
+    }
+
+    private Control PracticeStintSection()
+    {
+        var box = PlanBox("ПРОГРАММА ЗАЕЗДА");
+        _practiceProgram = ChoiceBox(260); _practiceProgram.Items.AddRange(new object[] { "Квалификационный темп", "Гоночный темп" }); _practiceProgram.SelectedIndex = 1; box.Controls.Add(LabeledChoice("Программа", _practiceProgram));
+        var tyres = TyreBox(); box.Controls.Add(LabeledChoice("Комплект шин", tyres));
+        var laps = new NumericUpDown { Minimum = 1, Maximum = 30, Value = 4, Width = 260, BackColor = DashboardForm.UiRaised, ForeColor = DashboardForm.UiText, BorderStyle = BorderStyle.FixedSingle };
+        box.Controls.Add(LabeledChoice("Круги", laps));
+        var summary = new Label { Text = "Топливо будет рассчитано автоматически", ForeColor = DashboardForm.UiMuted, AutoSize = true, Margin = new Padding(4, 8, 0, 10) }; box.Controls.Add(summary);
+        void RefreshPlan() { int multiplier = _practiceProgram.SelectedIndex == 0 ? 1 : 4; if (laps.Value < multiplier) laps.Value = multiplier; summary.Text = $"Заезд: {laps.Value} кр.  •  Топливо: {laps.Value + 2} кр."; }
+        _practiceProgram.SelectedIndexChanged += (_, _) => RefreshPlan(); laps.ValueChanged += (_, _) => RefreshPlan(); RefreshPlan();
+        var apply = DashboardForm.ActionButton("ПРИМЕНИТЬ ПРОГРАММУ", DashboardForm.UiAccent, Color.FromArgb(8, 25, 15)); apply.Width = 360; apply.Height = 44;
+        apply.Click += (_, _) => { if (tyres.SelectedItem is TyreChoice tyre) Send("pit_tyres", tyre.Option, tyre.Index); Send("practice_program", _practiceProgram.SelectedIndex); Send("pit_fuel", (int)laps.Value + 2); Send("ordered_lap_count", (int)laps.Value); };
+        box.Controls.Add(apply); return box;
+    }
+
+    private Control QualifyingStintSection()
+    {
+        var box = PlanBox("КВАЛИФИКАЦИОННЫЙ ЗАЕЗД"); var tyres = TyreBox(); box.Controls.Add(LabeledChoice("Комплект шин", tyres));
+        var laps = new NumericUpDown { Minimum = 1, Maximum = 5, Value = 1, Width = 260, BackColor = DashboardForm.UiRaised, ForeColor = DashboardForm.UiText };
+        box.Controls.Add(LabeledChoice("Быстрые круги", laps)); var apply = DashboardForm.ActionButton("ПРИМЕНИТЬ", DashboardForm.UiAccent, Color.FromArgb(8, 25, 15));
+        apply.Click += (_, _) => { if (tyres.SelectedItem is TyreChoice tyre) Send("pit_tyres", tyre.Option, tyre.Index); Send("pit_fuel", (int)laps.Value + 2); Send("ordered_lap_count", (int)laps.Value); }; box.Controls.Add(apply); return box;
+    }
+
+    private FlowLayoutPanel PlanBox(string title) { var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Width = 390, AutoSize = true, BackColor = DashboardForm.UiRaised, Padding = new Padding(15), Margin = new Padding(0, 0, 0, 16) }; box.Controls.Add(new Label { Text = title, Font = new Font("Segoe UI Semibold", 14f), ForeColor = DashboardForm.UiText, AutoSize = true, Margin = new Padding(4, 0, 0, 12) }); return box; }
+    private ComboBox ChoiceBox(int width) => new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = width, BackColor = DashboardForm.UiCanvas, ForeColor = DashboardForm.UiText };
+    private ComboBox TyreBox() { var tyres = ChoiceBox(260); _tyreSelectors.Add(tyres); return tyres; }
+    private Control LabeledChoice(string title, Control control) { var row = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Width = 360, Height = 60, Margin = new Padding(4, 0, 0, 8) }; row.Controls.Add(new Label { Text = title, ForeColor = DashboardForm.UiMuted, AutoSize = true }); row.Controls.Add(control); return row; }
+    private Control CompactCommandGroup(string title, params (string Text, string Kind, int Value)[] commands)
+    {
+        var box = new FlowLayoutPanel { Width = 390, AutoSize = true, WrapContents = true, BackColor = DashboardForm.UiSurface, Margin = new Padding(0, 0, 0, 10) };
+        box.Controls.Add(new Label { Text = title, Width = 370, Height = 24, ForeColor = DashboardForm.UiMuted, Font = new Font("Segoe UI Semibold", 9f) });
+        foreach (var command in commands) { var button = DashboardForm.ActionButton(command.Text, DashboardForm.UiRaised, DashboardForm.UiText); button.Click += (_, _) => Send(command.Kind, command.Value); box.Controls.Add(button); }
+        return box;
     }
     private Control Sections(params Control[] controls) { var p = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true }; foreach (Control c in controls) p.Controls.Add(c); return p; }
     private Control Row(params (string Text, string Kind, int Value)[] commands) { var p = new FlowLayoutPanel { Width = 850, Height = 62, Margin = new Padding(0, 0, 0, 12) }; foreach (var c in commands) { var b = DashboardForm.ActionButton(c.Text, DashboardForm.UiRaised, DashboardForm.UiText); b.Click += (_, _) => Send(c.Kind, c.Value); p.Controls.Add(b); } return p; }
@@ -221,13 +265,14 @@ internal sealed class RaceControlPanel : UserControl
         _latestTelemetry = root;
         string session = root.TryGetProperty("session", out var s) ? s.GetString() ?? "" : ""; _session.Text = string.IsNullOrWhiteSpace(session) ? "Host подключён — сессия не запущена" : session;
         if (session.Contains("Practice", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 0; else if (session.Contains("Qual", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 1; else if (session.Contains("Race", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 2;
-        int selected = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; var vehicles = new List<VehicleTelemetry>(); if (root.TryGetProperty("vehicles", out var a)) foreach (var item in a.EnumerateArray()) vehicles.Add(new(item.GetProperty("id").GetInt32(), item.GetProperty("driver").GetString() ?? "", item.GetProperty("lap").GetInt32(), item.GetProperty("position").GetInt32(), item.GetProperty("fuel").GetDouble(), item.GetProperty("tyreWear").GetDouble(), item.GetProperty("status").GetString() ?? "", ReadSetup(item), ReadTyres(item), ReadOptionalInt(item, "selectedTyreOption", -1), ReadOptionalInt(item, "selectedTyreIndex", -1)));
+        int selected = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; var vehicles = new List<VehicleTelemetry>(); if (root.TryGetProperty("vehicles", out var a)) foreach (var item in a.EnumerateArray()) vehicles.Add(new(item.GetProperty("id").GetInt32(), item.GetProperty("driver").GetString() ?? "", item.GetProperty("lap").GetInt32(), item.GetProperty("position").GetInt32(), item.GetProperty("fuel").GetDouble(), item.GetProperty("tyreWear").GetDouble(), item.GetProperty("status").GetString() ?? "", ReadSetup(item), ReadTyres(item), ReadOptionalInt(item, "selectedTyreOption", -1), ReadOptionalInt(item, "selectedTyreIndex", -1), ReadOptionalText(item, "trim")));
         _driver.Items.Clear(); foreach (var v in vehicles) _driver.Items.Add(v); if (_driver.Items.Count == 0) { _metrics.Text = "Пилоты появятся после входа Host в сессию"; return; } int index = vehicles.FindIndex(v => v.Id == selected); _driver.SelectedIndex = index >= 0 ? index : 0; var current = (VehicleTelemetry)_driver.SelectedItem!; _metrics.Text = $"   P{current.Position}   Круг {current.Lap}   Топливо {current.Fuel:0.0}   Шины {current.TyreWear:0}%"; ApplySelectedSetup();
     }
-    private void ApplySelectedSetup() { var vehicle = _driver.SelectedItem as VehicleTelemetry; var setup = vehicle?.Setup; if (setup != null) for (int i = 0; i < Math.Min(setup.Length, _setupBars.Length); i++) if (_setupBars[i] != null) { _setupBars[i].Enabled = setup[i] >= 0; if (setup[i] >= 0) _setupBars[i].Value = Math.Max(0, Math.Min(100, (int)Math.Round(setup[i] * 100))); } foreach (ComboBox selector in _tyreSelectors) { int selectedOption = vehicle?.SelectedTyreOption ?? -1; int selectedIndex = vehicle?.SelectedTyreIndex ?? -1; selector.Items.Clear(); foreach (TyreChoice tyre in vehicle?.Tyres ?? new List<TyreChoice>()) selector.Items.Add(tyre); int match = (vehicle?.Tyres ?? new List<TyreChoice>()).FindIndex(t => t.Option == selectedOption && t.Index == selectedIndex); if (selector.Items.Count > 0) selector.SelectedIndex = match >= 0 ? match : 0; } }
+    private void ApplySelectedSetup() { var vehicle = _driver.SelectedItem as VehicleTelemetry; var setup = vehicle?.Setup; if (setup != null) for (int i = 0; i < Math.Min(setup.Length, _setupBars.Length); i++) if (_setupBars[i] != null) { _setupBars[i].Enabled = setup[i] >= 0; if (setup[i] >= 0) _setupBars[i].Value = Math.Max(0, Math.Min(100, (int)Math.Round(setup[i] * 100))); } if (_practiceProgram != null && vehicle != null) _practiceProgram.SelectedIndex = vehicle.Trim.IndexOf("Qual", StringComparison.OrdinalIgnoreCase) >= 0 ? 0 : 1; foreach (ComboBox selector in _tyreSelectors) { int selectedOption = vehicle?.SelectedTyreOption ?? -1; int selectedIndex = vehicle?.SelectedTyreIndex ?? -1; selector.Items.Clear(); foreach (TyreChoice tyre in vehicle?.Tyres ?? new List<TyreChoice>()) selector.Items.Add(tyre); int match = (vehicle?.Tyres ?? new List<TyreChoice>()).FindIndex(t => t.Option == selectedOption && t.Index == selectedIndex); if (selector.Items.Count > 0) selector.SelectedIndex = match >= 0 ? match : 0; } }
     private static double[] ReadSetup(JsonElement vehicle) { if (!vehicle.TryGetProperty("setup", out var values)) return Array.Empty<double>(); return values.EnumerateArray().Select(value => value.GetDouble()).ToArray(); }
     private static List<TyreChoice> ReadTyres(JsonElement vehicle) { var result = new List<TyreChoice>(); if (!vehicle.TryGetProperty("tyres", out var values)) return result; foreach (JsonElement value in values.EnumerateArray()) result.Add(new(value.GetProperty("option").GetInt32(), value.GetProperty("index").GetInt32(), value.GetProperty("name").GetString() ?? "")); return result; }
     private static int ReadOptionalInt(JsonElement value, string name, int fallback) => value.TryGetProperty(name, out var property) && property.TryGetInt32(out int result) ? result : fallback;
+    private static string ReadOptionalText(JsonElement value, string name) => value.TryGetProperty(name, out var property) ? property.GetString() ?? "" : "";
     private void Send(string kind, int value, int aux = 0) { if (_writer == null) { _state.Text = "●  Нажмите «Обновить состояние»"; return; } int target = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; try { _writer.WriteLine(JsonSerializer.Serialize(new { type = "action", kind, target, value, aux, flag = 0 })); } catch (Exception ex) { Disconnect(); _state.Text = "●  Команда не отправлена — " + ex.Message; _state.ForeColor = Color.FromArgb(240, 105, 105); } }
 
     private async Task RunSmokeTestAsync()

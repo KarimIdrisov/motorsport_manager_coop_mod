@@ -1235,14 +1235,26 @@ namespace MotorsportManagerCoop
             }
             if (incoming != null &&
                 (incoming.IndexOf("setup_value", StringComparison.Ordinal) >= 0 ||
-                 incoming.IndexOf("setup_apply", StringComparison.Ordinal) >= 0))
+                 incoming.IndexOf("setup_apply", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("practice_program", StringComparison.Ordinal) >= 0))
             {
                 _applyRemoteAction = true;
                 try
                 {
                     SessionSetup setup;
                     if (!_setupsByVehicle.TryGetValue(incomingTarget, out setup)) throw new InvalidOperationException("Session setup target unavailable");
-                    if (incoming.IndexOf("setup_value", StringComparison.Ordinal) >= 0)
+                    if (incoming.IndexOf("practice_program", StringComparison.Ordinal) >= 0)
+                    {
+                        int program = ReadActionValue(incoming);
+                        RacingVehicle vehicle = VehicleFromComponent(setup);
+                        setup.SetTargetTrim(program == 0 ? SessionSetup.Trim.Qualifying : SessionSetup.Trim.Race);
+                        if (vehicle != null && vehicle.practiceKnowledge != null)
+                            vehicle.practiceKnowledge.knowledgeType = program == 0
+                                ? PracticeReportSessionData.KnowledgeType.QualifyingTrim
+                                : PracticeReportSessionData.KnowledgeType.RaceTrim;
+                        Log("applied remote practice program vehicle=" + incomingTarget + " program=" + program);
+                    }
+                    else if (incoming.IndexOf("setup_value", StringComparison.Ordinal) >= 0)
                     {
                         SetupDetails details = ReadObject(setup, "targetSetup", "mTargetSetup") as SetupDetails;
                         SetupDetails current = ReadObject(setup, "currentSetup", "mCurrentSetup") as SetupDetails;
@@ -1606,7 +1618,7 @@ namespace MotorsportManagerCoop
                             if (!firstTyre) json.Append(',');
                             firstTyre = false;
                             json.Append("{\"option\":").Append(tyreOption).Append(",\"index\":").Append(tyreIndex);
-                            json.Append(",\"name\":\"").Append(JsonEscape(ReadText(tyre, "compound", "mCompound"))).Append("\"}");
+                            json.Append(",\"name\":\"").Append(JsonEscape(tyre == null ? "" : tyre.GetCompound().ToString())).Append("\"}");
                         }
                     }
                     json.Append(']');
@@ -1645,8 +1657,9 @@ namespace MotorsportManagerCoop
                             float setupValue = ReadSetupValue(currentDetails, option);
                             json.Append(setupValue.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
                         }
+                        json.Append("],\"trim\":\"").Append(JsonEscape(ReadText(currentDetails, "trim", "mTrim"))).Append('"');
                     }
-                    json.Append(']');
+                    else json.Append(']');
                     json.Append(",\"status\":\"").Append(JsonEscape(ReadText(pair.Value, "status", "mStatus"))).Append("\"}");
                 }
                 json.Append("]}\n");
