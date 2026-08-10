@@ -226,7 +226,7 @@ internal sealed class RaceControlPanel : UserControl
         return layout;
     }
     private Control QualifyingControls() => Sections(QualifyingStintSection(), ModeSection(), EngineSection(), Row(("НА ТРАССУ", "send_out_on_track", 0), ("В ГАРАЖ", "return_to_garage", 0), ("ПИТ", "pit_command", 0)), SpeedSection());
-    private Control RaceControls() => Sections(ModeSection(), EngineSection(), Row(("ERS: ЗАРЯД", "ers_mode", 0), ("ERS: ГИБРИД", "ers_mode", 1), ("ERS: МОЩНОСТЬ", "ers_mode", 2)), Row(("ПИТ-СТОП", "pit_command", 0), ("ОТМЕНИТЬ ПИТ", "cancel_pit", 0), ("РЕМОНТ", "pit_repair", 1)), SpeedSection());
+    private Control RaceControls() => Sections(RacePitSection(), ModeSection(), EngineSection(), Row(("ERS: ЗАРЯД", "ers_mode", 0), ("ERS: ГИБРИД", "ers_mode", 1), ("ERS: МОЩНОСТЬ", "ers_mode", 2)), Row(("ОТМЕНИТЬ ПИТ", "cancel_pit", 0), ("РЕМОНТ", "pit_repair", 1)), SpeedSection());
     private Control ModeSection() => Row(("АТАКА", "driving_style", 0), ("PUSH", "driving_style", 1), ("НЕЙТРАЛЬНО", "driving_style", 2), ("БЕРЕЧЬ", "driving_style", 3), ("ОТСТУПАТЬ", "driving_style", 4));
     private Control EngineSection() => Row(("СУПЕР-ОБГОН", "engine_mode", 0), ("ОБГОН", "engine_mode", 1), ("ВЫСОКИЙ", "engine_mode", 2), ("СРЕДНИЙ", "engine_mode", 3), ("НИЗКИЙ", "engine_mode", 4));
     private Control SpeedSection() => Row(("ПАУЗА / ПУСК", "pause_or_play", 0), ("1×", "simulation_speed", 0), ("2×", "simulation_speed", 1), ("4×", "simulation_speed", 2));
@@ -293,6 +293,21 @@ internal sealed class RaceControlPanel : UserControl
         var laps = new NumericUpDown { Minimum = 1, Maximum = 5, Value = 1, Width = 260, BackColor = DashboardForm.UiRaised, ForeColor = DashboardForm.UiText };
         box.Controls.Add(LabeledChoice("Быстрые круги", laps)); var apply = DashboardForm.ActionButton("ПРИМЕНИТЬ", DashboardForm.UiAccent, Color.FromArgb(8, 25, 15));
         apply.Click += (_, _) => { if (tyres.SelectedItem is TyreChoice tyre) Send("pit_tyres", tyre.Option, tyre.Index); Send("pit_fuel", (int)laps.Value + 2); Send("ordered_lap_count", (int)laps.Value); }; box.Controls.Add(apply); return box;
+    }
+
+    private Control RacePitSection()
+    {
+        var box = PlanBox("СТРАТЕГИЯ ПИТ-СТОПА");
+        var tyres = TyreBox();
+        box.Controls.Add(LabeledChoice("Следующий комплект шин", tyres));
+        var actions = new FlowLayoutPanel { Width = 360, Height = 54, WrapContents = false, Margin = new Padding(0, 2, 0, 0) };
+        var select = DashboardForm.ActionButton("ВЫБРАТЬ ШИНЫ", DashboardForm.UiRaised, DashboardForm.UiText);
+        select.Click += (_, _) => { if (tyres.SelectedItem is TyreChoice tyre) Send("tyre_select", tyre.Option, tyre.Index); };
+        var pit = DashboardForm.ActionButton("ПИТ-СТОП", DashboardForm.UiAccent, Color.White);
+        pit.Click += (_, _) => { if (tyres.SelectedItem is TyreChoice tyre) Send("tyre_select", tyre.Option, tyre.Index); Send("pit_command", 0); };
+        actions.Controls.Add(select); actions.Controls.Add(pit); box.Controls.Add(actions);
+        box.Controls.Add(new Label { Text = "ПИТ-СТОП назначает выбранный комплект и вызывает машину в боксы", ForeColor = DashboardForm.UiMuted, AutoSize = true, Margin = new Padding(4, 0, 0, 2) });
+        return box;
     }
 
     private FlowLayoutPanel PlanBox(string title) { var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Width = 390, AutoSize = true, BackColor = DashboardForm.UiRaised, Padding = new Padding(15), Margin = new Padding(0, 0, 0, 16) }; box.Controls.Add(new Label { Text = title, Font = new Font("Segoe UI Semibold", 14f), ForeColor = DashboardForm.UiText, AutoSize = true, Margin = new Padding(4, 0, 0, 12) }); return box; }
