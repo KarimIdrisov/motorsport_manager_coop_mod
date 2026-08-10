@@ -198,7 +198,12 @@ internal sealed class RaceControlPanel : UserControl
         row.Controls.Add(new Label { Text = "Кругов в программе", ForeColor = DashboardForm.UiMuted, AutoSize = true, Padding = new Padding(0, 11, 6, 0) });
         var laps = new NumericUpDown { Minimum = 1, Maximum = 30, Value = 5, Width = 64, BackColor = DashboardForm.UiRaised, ForeColor = DashboardForm.UiText, Margin = new Padding(4, 7, 14, 0) }; row.Controls.Add(laps);
         var apply = DashboardForm.ActionButton("ПРИМЕНИТЬ ПРОГРАММУ", DashboardForm.UiAccent, Color.FromArgb(8, 25, 15));
-        apply.Click += (_, _) => { if (tyres.SelectedItem is TyreChoice tyre) Send("pit_tyres", tyre.Option, tyre.Index); Send("ordered_lap_count", (int)laps.Value); };
+        apply.Click += (_, _) =>
+        {
+            if (tyres.SelectedItem is TyreChoice tyre) Send("pit_tyres", tyre.Option, tyre.Index);
+            Send("pit_fuel", (int)laps.Value + 2);
+            Send("ordered_lap_count", (int)laps.Value);
+        };
         row.Controls.Add(apply); return row;
     }
     private Control Sections(params Control[] controls) { var p = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true }; foreach (Control c in controls) p.Controls.Add(c); return p; }
@@ -249,7 +254,7 @@ internal sealed class RaceControlPanel : UserControl
             }
             else results.Add("SKIP настройки");
 
-            await CheckAsync("программа", () => Send("ordered_lap_count", config.OrderedLaps),
+            await CheckAsync("программа", () => { Send("pit_fuel", config.OrderedLaps + 2); Send("ordered_lap_count", config.OrderedLaps); },
                 root => ReadVehicle(root, vehicle.Id).TryGetProperty("orderedLaps", out var laps) && laps.GetInt32() == config.OrderedLaps, results, config.CommandTimeoutMs);
 
             JsonElement currentVehicle = ReadVehicle(_latestTelemetry!.Value, vehicle.Id);

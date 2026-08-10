@@ -49,6 +49,7 @@ Send-Action 'setup_apply' $VehicleId 0
 Start-Sleep -Seconds 2
 $states += Read-State 'setup_applied'
 Send-Action 'pit_tyres' $VehicleId 0 0
+Send-Action 'pit_fuel' $VehicleId 6
 Send-Action 'ordered_lap_count' $VehicleId 4
 $states += Read-State 'program_applied'
 Send-Action 'send_out_on_track' $VehicleId 0
