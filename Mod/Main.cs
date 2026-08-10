@@ -1204,7 +1204,8 @@ namespace MotorsportManagerCoop
                 (incoming.IndexOf("pit_fuel", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pit_repair", StringComparison.Ordinal) >= 0 ||
                  incoming.IndexOf("pit_battery", StringComparison.Ordinal) >= 0 ||
-                 incoming.IndexOf("pit_tyres", StringComparison.Ordinal) >= 0))
+                 incoming.IndexOf("pit_tyres", StringComparison.Ordinal) >= 0 ||
+                 incoming.IndexOf("tyre_select", StringComparison.Ordinal) >= 0))
             {
                 _applyRemoteAction = true;
                 try
@@ -1587,10 +1588,10 @@ namespace MotorsportManagerCoop
             try
             {
                 StringBuilder json = new StringBuilder("{\"type\":\"telemetry\",\"session\":\"");
-                json.Append(JsonEscape(ReadText(_raceEvent, "sessionType", "mSessionType", "eventType")));
+                SessionManager manager = Game.instance == null ? null : Game.instance.sessionManager;
+                json.Append(JsonEscape(manager == null ? "" : manager.sessionType.ToString()));
                 json.Append("\",\"speed\":").Append(_timer == null ? 0 : (int)ReadNumber(_timer, "speed", "mSpeed"));
                 json.Append(",\"paused\":").Append(_remotePaused ? "true" : "false");
-                SessionManager manager = Game.instance == null ? null : Game.instance.sessionManager;
                 json.Append(",\"sessionTime\":").Append((manager == null ? 0f : manager.time).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
                 json.Append(",\"sessionLap\":").Append(manager == null ? 0 : manager.lap);
                 json.Append(",\"sessionLapCount\":").Append(manager == null ? 0 : manager.lapCount);
