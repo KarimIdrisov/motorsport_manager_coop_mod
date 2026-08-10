@@ -1145,10 +1145,11 @@ namespace MotorsportManagerCoop
                         targetStrategy.SetOrderedLapCount(value);
                     else if (incoming.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0)
                     {
-                        if (targetStrategy.status != SessionStrategy.Status.NoActionRequired && IsActuallyInGarage(targetStrategy))
-                            targetStrategy.SetStatus(SessionStrategy.Status.NoActionRequired);
-                        if (targetStrategy.status == SessionStrategy.Status.NoActionRequired) targetStrategy.SendOutOnTrack();
-                        else { _pendingSendOut.Add(incomingTarget); Log("queued remote send out vehicle=" + incomingTarget + " status=" + targetStrategy.status); }
+                        if (!TryBeginSendOut(targetStrategy))
+                        {
+                            _pendingSendOut.Add(incomingTarget);
+                            Log("queued remote send out vehicle=" + incomingTarget + " status=" + targetStrategy.status);
+                        }
                     }
                     else if (incoming.IndexOf("return_to_garage", StringComparison.Ordinal) >= 0)
                         targetStrategy.ReturnToGarage();
@@ -1260,8 +1261,7 @@ namespace MotorsportManagerCoop
                     }
                     else
                     {
-                        setup.MakeSetupChanges();
-                        Log("applied remote setup changes vehicle=" + incomingTarget);
+                        Log("accepted remote setup changes vehicle=" + incomingTarget);
                     }
                 }
                 catch (Exception ex) { _status = "Remote setup failed: " + ex.Message; Log(_status); }
@@ -1353,10 +1353,8 @@ namespace MotorsportManagerCoop
                 {
                     SessionStrategy pendingStrategy;
                     if (!_strategiesByVehicle.TryGetValue(vehicleId, out pendingStrategy)) continue;
-                    if (pendingStrategy.status != SessionStrategy.Status.NoActionRequired && IsActuallyInGarage(pendingStrategy))
-                        pendingStrategy.SetStatus(SessionStrategy.Status.NoActionRequired);
-                    if (pendingStrategy.status != SessionStrategy.Status.NoActionRequired) continue;
-                    try { _applyRemoteAction = true; pendingStrategy.SendOutOnTrack(); _pendingSendOut.Remove(vehicleId); Log("applied queued send out vehicle=" + vehicleId); }
+                    if (!IsActuallyInGarage(pendingStrategy)) continue;
+                    try { _applyRemoteAction = true; if (TryBeginSendOut(pendingStrategy)) { _pendingSendOut.Remove(vehicleId); Log("applied queued send out vehicle=" + vehicleId); } }
                     catch (Exception ex) { Log("queued send out failed=" + ex.Message); }
                     finally { _applyRemoteAction = false; }
                 }
@@ -1681,7 +1679,17 @@ namespace MotorsportManagerCoop
         {
             RacingVehicle vehicle = VehicleFromComponent(strategy);
             return vehicle != null && vehicle.pathState != null &&
-                vehicle.pathState.stateType == PathStateManager.StateType.Garage;
+                (vehicle.pathState.pathStateGroup == PathStateManager.PathStateGroup.InGarage ||
+                 vehicle.pathState.pathStateGroup == PathStateManager.PathStateGroup.InPitbox);
+        }
+
+        private static bool TryBeginSendOut(SessionStrategy strategy)
+        {
+            RacingVehicle vehicle = VehicleFromComponent(strategy);
+            if (vehicle == null || vehicle.setup == null || !IsActuallyInGarage(strategy)) return false;
+            vehicle.setup.MakeSetupChanges();
+            Log("started standard send out sequence vehicle=" + vehicle.id + " status=" + strategy.status);
+            return true;
         }
 
         private static string ReadText(object instance, params string[] names)

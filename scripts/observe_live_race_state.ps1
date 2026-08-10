@@ -17,7 +17,8 @@ for ($sample = 0; $sample -lt $Samples; $sample++) {
                     $vehicle = $json.vehicles | Where-Object id -eq $VehicleId
                     $states += [pscustomobject]@{
                         time=(Get-Date).ToString('HH:mm:ss'); speed=$json.speed; paused=$json.paused
-                        status=$vehicle.status; orderedLaps=$vehicle.orderedLaps; setup0=$vehicle.setup[0]
+                        status=$vehicle.status; lap=$vehicle.lap; position=$vehicle.position; fuel=$vehicle.fuel
+                        tyreWear=$vehicle.tyreWear; orderedLaps=$vehicle.orderedLaps; setup0=$vehicle.setup[0]
                     }
                     break
                 }
