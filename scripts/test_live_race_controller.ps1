@@ -22,6 +22,7 @@ function Read-State([string]$label) {
                     step = $label; speed = $json.speed; paused = $json.paused
                     status = $vehicle.status; setup0 = $vehicle.setup[0]
                     setup1 = $vehicle.setup[1]; tyres = $vehicle.tyres.Count
+                    trim = $vehicle.trim; selectedTyre = "$($vehicle.selectedTyreOption):$($vehicle.selectedTyreIndex)"
                 }
             }
         } catch { }
@@ -49,6 +50,7 @@ Send-Action 'setup_apply' $VehicleId 0
 Start-Sleep -Seconds 2
 $states += Read-State 'setup_applied'
 Send-Action 'pit_tyres' $VehicleId 0 0
+Send-Action 'practice_program' $VehicleId 1
 Send-Action 'pit_fuel' $VehicleId 6
 Send-Action 'ordered_lap_count' $VehicleId 4
 $states += Read-State 'program_applied'
