@@ -1590,6 +1590,10 @@ namespace MotorsportManagerCoop
                 json.Append(JsonEscape(ReadText(_raceEvent, "sessionType", "mSessionType", "eventType")));
                 json.Append("\",\"speed\":").Append(_timer == null ? 0 : (int)ReadNumber(_timer, "speed", "mSpeed"));
                 json.Append(",\"paused\":").Append(_remotePaused ? "true" : "false");
+                SessionManager manager = Game.instance == null ? null : Game.instance.sessionManager;
+                json.Append(",\"sessionTime\":").Append((manager == null ? 0f : manager.time).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                json.Append(",\"sessionLap\":").Append(manager == null ? 0 : manager.lap);
+                json.Append(",\"sessionLapCount\":").Append(manager == null ? 0 : manager.lapCount);
                 json.Append(",\"vehicles\":[");
                 bool first = true;
                 foreach (KeyValuePair<int, SessionStrategy> pair in _strategiesByVehicle)
@@ -1602,10 +1606,19 @@ namespace MotorsportManagerCoop
                     object fuel = _fuelByVehicle.ContainsKey(pair.Key) ? _fuelByVehicle[pair.Key] : null;
                     json.Append("{\"id\":").Append(pair.Key);
                     json.Append(",\"driver\":\"").Append(JsonEscape(ReadText(driver, "name", "fullName", "mName"))).Append('"');
-                    json.Append(",\"lap\":").Append((int)ReadNumber(vehicle, "lap", "lapNumber", "mLap"));
-                    json.Append(",\"position\":").Append((int)ReadNumber(vehicle, "position", "racePosition", "mRacePosition"));
-                    json.Append(",\"fuel\":").Append(ReadNumber(fuel, "fuelLapDistance", "fuelLaps", "mFuelLapDistance").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
-                    json.Append(",\"tyreWear\":").Append(ReadNumber(vehicle, "tyreWear", "mTyreWear").ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    SessionTimer timer = vehicle.timer;
+                    SessionTimer.LapData previousLap = timer == null ? null : timer.GetPreviousActiveLapData();
+                    TyreSet currentTyre = vehicle.setup == null ? null : vehicle.setup.tyreSet;
+                    json.Append(",\"lap\":").Append(timer == null ? 0 : timer.lap);
+                    json.Append(",\"position\":").Append(vehicle.standingsPosition + 1);
+                    json.Append(",\"gapLeader\":").Append((timer == null ? 0f : timer.gapToLeader).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"gapAhead\":").Append((timer == null ? 0f : timer.gapToAhead).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"lastLap\":").Append((previousLap == null ? 0f : previousLap.time).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"bestLap\":").Append((timer == null ? 0f : timer.GetFastestLapTime()).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"fuel\":").Append((fuel == null ? 0f : ((Fuel)fuel).GetFuelLapsRemainingDecimal()).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyreWear\":").Append((currentTyre == null ? 0f : currentTyre.GetCondition() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyreTemperature\":").Append((currentTyre == null ? 0f : currentTyre.GetTemperature() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"currentCompound\":\"").Append(JsonEscape(currentTyre == null ? "" : currentTyre.GetCompound().ToString())).Append('"');
                     json.Append(",\"orderedLaps\":").Append((int)ReadNumber(pair.Value, "orderedLapCount", "mOrderedLapCount"));
                     json.Append(",\"tyres\":[");
                     bool firstTyre = true;
@@ -1658,6 +1671,22 @@ namespace MotorsportManagerCoop
                             json.Append(setupValue.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
                         }
                         json.Append("],\"trim\":\"").Append(JsonEscape(ReadText(currentDetails, "trim", "mTrim"))).Append('"');
+                        SessionSetup.SetupOutput setupOutput = new SessionSetup.SetupOutput();
+                        if (currentDetails != null && currentDetails.input != null)
+                            currentDetails.input.GetSetupOutput(ref setupOutput, vehicle.driver.weight);
+                        SetupPerformance.OptimalSetup optimal = vehicle.performance.setupPerformance.GetOptimalSetup();
+                        float knowledge = vehicle.practiceKnowledge == null ? 0f : vehicle.practiceKnowledge.GetSetupKnowledgeNormalised();
+                        float[] minRange; float[] maxRange;
+                        vehicle.performance.setupPerformance.GetVisualKnowledgeRangeFromNormalisedValue(knowledge, out minRange, out maxRange);
+                        float aeroDelta = setupOutput.aerodynamics - optimal.setupOutput.aerodynamics;
+                        float speedDelta = setupOutput.speedBalance - optimal.setupOutput.speedBalance;
+                        float handlingDelta = setupOutput.handling - optimal.setupOutput.handling;
+                        float quality = (Mathf.Clamp01(1f - Mathf.Abs(aeroDelta)) + Mathf.Clamp01(1f - Mathf.Abs(speedDelta)) + Mathf.Clamp01(1f - Mathf.Abs(handlingDelta))) / 3f;
+                        json.Append(",\"setupBalance\":[").Append(setupOutput.aerodynamics.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(setupOutput.speedBalance.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(setupOutput.handling.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(']');
+                        json.Append(",\"setupRecommendedMin\":[").Append((optimal.setupOutput.aerodynamics + minRange[0]).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append((optimal.setupOutput.speedBalance + minRange[1]).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append((optimal.setupOutput.handling + minRange[2]).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(']');
+                        json.Append(",\"setupRecommendedMax\":[").Append((optimal.setupOutput.aerodynamics + maxRange[0]).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append((optimal.setupOutput.speedBalance + maxRange[1]).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append((optimal.setupOutput.handling + maxRange[2]).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)).Append(']');
+                        json.Append(",\"setupQuality\":").Append((quality * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                        json.Append(",\"setupKnowledge\":").Append((knowledge * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     }
                     else json.Append(']');
                     json.Append(",\"status\":\"").Append(JsonEscape(ReadText(pair.Value, "status", "mStatus"))).Append("\"}");

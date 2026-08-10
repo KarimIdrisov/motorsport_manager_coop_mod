@@ -1,26 +1,24 @@
-# Race Command design system
+# Pit Wall design system
 
-The launcher is an operational race console used beside Motorsport Manager. It
-prioritizes connection state, driver selection, live telemetry, and immediate
-session commands over installation details.
+Race Command — плотная операционная консоль, вдохновлённая pit-wall timing sheets и инженерными рабочими станциями автоспорта. Она избегает неонового «геймерского HUD».
 
 ## Visual language
 
-- Canvas: near-black graphite `#0D1014`.
-- Primary surface: `#181D23`; raised controls: `#20262D`.
-- Main text: `#EEF2F4`; secondary text: `#9FAAB2`.
-- Live/ready accent: signal green `#4EDA80`. Red is reserved for connection loss.
-- Typography: Segoe UI with Semibold for operational headings.
-- Controls are rectangular with small native radii and no decorative shadows.
+- Canvas `#0D1014`, рабочие поверхности `#181D23`, поднятые поля `#20262D`.
+- Основной текст `#EEF2F4`, вторичный `#9FAAB2`.
+- F1 red `#E10600` обозначает команды и активный выбор.
+- Signal green `#26D67B` означает нормальное состояние и рекомендованный диапазон.
+- Timing purple `#B974FF` выделяет сильный результат и верхние позиции.
+- Bahnschrift используется для тайминга и инженерных значений; Segoe UI — для управляющего текста.
 
-## Layout
+## Information architecture
 
-The desktop shell uses a narrow Host/setup rail and a flexible race-command
-workspace. Connection and session state remain above the driver selector. Practice,
-Qualifying, and Race are separate tabs with controls relevant to each phase.
+Порядок чтения фиксирован: связь и сессия → выбранный пилот → timing strip → контекстная вкладка → команда. Тайминг всегда остаётся над Practice, Qualifying и Race.
+
+## Setup visualization
+
+Три сводные оси повторяют игру: Aerodynamics, Speed Balance, Handling. Тёмная шкала показывает полный диапазон, зелёная полоса — текущую рекомендацию механика, белый маркер — целевую настройку. Рядом показываются точное качество и накопленные знания.
 
 ## Interaction
 
-The controller connects on startup. “Обновить состояние” requests an immediate
-telemetry snapshot and reconnects if needed. Incoming session names select the
-matching tab automatically while preserving manual tab access.
+Красный применяется к подтверждающим действиям, нейтральные серые кнопки — к режимам. Потеря связи сбрасывает поток и делает повторное подключение явным. Недоступные параметры отключаются, неизвестные значения отображаются как `—`.

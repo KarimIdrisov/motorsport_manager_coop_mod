@@ -4,6 +4,12 @@ using System.Text.Json;
 
 namespace MotorsportManagerCoopLauncher;
 
+// THESIS: A pit-wall timing sheet, not a decorative gamer dashboard.
+// OWN-WORLD: Carbon graphite fields, dense white telemetry, F1 red commands, green/purple state signals.
+// STORY: Read session and car state first, evaluate setup evidence second, issue one deliberate command third.
+// FIRST VIEWPORT: Connection rail, driver identity, live timing strip, then Practice/Qualifying/Race workspace.
+// FORM: Desktop operational console; unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md.
+
 internal sealed class DashboardForm : Form
 {
     private static readonly Color Canvas = Color.FromArgb(13, 16, 20);
@@ -11,7 +17,9 @@ internal sealed class DashboardForm : Form
     private static readonly Color SurfaceRaised = Color.FromArgb(32, 38, 45);
     private static readonly Color TextMain = Color.FromArgb(238, 242, 244);
     private static readonly Color TextMuted = Color.FromArgb(159, 170, 178);
-    private static readonly Color Accent = Color.FromArgb(78, 218, 128);
+    private static readonly Color Accent = Color.FromArgb(225, 6, 0);
+    private static readonly Color Good = Color.FromArgb(38, 214, 123);
+    private static readonly Color Purple = Color.FromArgb(185, 116, 255);
 
     private readonly TextBox _gamePath = Field();
     private readonly TextBox _repo = Field();
@@ -24,8 +32,8 @@ internal sealed class DashboardForm : Form
 
     public DashboardForm()
     {
-        Text = "Motorsport Manager Coop — Race Command";
-        MinimumSize = new Size(1180, 720); Size = new Size(1360, 820); StartPosition = FormStartPosition.CenterScreen;
+        Text = "Motorsport Manager Coop — Pit Wall";
+        MinimumSize = new Size(1180, 760); Size = new Size(1440, 900); StartPosition = FormStartPosition.CenterScreen;
         BackColor = Canvas; ForeColor = TextMain; Font = new Font("Segoe UI", 10f);
         var shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(20), BackColor = Canvas };
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -43,8 +51,8 @@ internal sealed class DashboardForm : Form
     private Control Header()
     {
         var panel = new Panel { Dock = DockStyle.Fill };
-        panel.Controls.Add(new Label { Text = "RACE COMMAND", Font = new Font("Segoe UI Semibold", 23f), ForeColor = TextMain, AutoSize = true, Location = new Point(0, 8) });
-        panel.Controls.Add(new Label { Text = "Один Host. Один пилот. Полный контроль сессии.", ForeColor = TextMuted, AutoSize = true, Location = new Point(4, 47) });
+        panel.Controls.Add(new Label { Text = "PIT WALL  /  CAR CONTROL", Font = new Font("Bahnschrift SemiBold", 22f), ForeColor = TextMain, AutoSize = true, Location = new Point(0, 8) });
+        panel.Controls.Add(new Label { Text = "LIVE ENGINEERING LINK", Font = new Font("Bahnschrift", 9f), ForeColor = Accent, AutoSize = true, Location = new Point(4, 48) });
         var network = ActionButton("ПОДКЛЮЧЕНИЕ", SurfaceRaised, TextMain);
         network.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         network.Location = new Point(panel.Width - 170, 18);
@@ -125,7 +133,7 @@ internal sealed class DashboardForm : Form
     private static Label Title(string text) => new() { Text = text, Font = new Font("Segoe UI Semibold", 16f), ForeColor = TextMain, AutoSize = true, Margin = new Padding(0, 0, 0, 16) };
     private static Control Labeled(string label, Control control) { var p = new FlowLayoutPanel { Width = 300, Height = 62, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 0, 0, 6) }; p.Controls.Add(new Label { Text = label, ForeColor = TextMuted, AutoSize = true }); control.Width = 294; control.BackColor = SurfaceRaised; control.ForeColor = TextMain; p.Controls.Add(control); return p; }
     internal static Button ActionButton(string text, Color back, Color fore) { var b = new Button { Text = text, AutoSize = true, Height = 38, FlatStyle = FlatStyle.Flat, BackColor = back, ForeColor = fore, Cursor = Cursors.Hand, Margin = new Padding(4) }; b.FlatAppearance.BorderSize = 0; return b; }
-    internal static Color UiCanvas => Canvas; internal static Color UiSurface => Surface; internal static Color UiRaised => SurfaceRaised; internal static Color UiText => TextMain; internal static Color UiMuted => TextMuted; internal static Color UiAccent => Accent;
+    internal static Color UiCanvas => Canvas; internal static Color UiSurface => Surface; internal static Color UiRaised => SurfaceRaised; internal static Color UiText => TextMain; internal static Color UiMuted => TextMuted; internal static Color UiAccent => Accent; internal static Color UiGood => Good; internal static Color UiPurple => Purple;
 }
 
 internal sealed class RaceControlPanel : UserControl
@@ -133,8 +141,12 @@ internal sealed class RaceControlPanel : UserControl
     private readonly string _host; private readonly int _port;
     private readonly Label _state = new() { AutoSize = true }; private readonly Label _session = new() { AutoSize = true, Font = new Font("Segoe UI Semibold", 18f) };
     private readonly Label _metrics = new() { AutoSize = true, ForeColor = DashboardForm.UiMuted };
+    private readonly Label[] _timingValues = Enumerable.Range(0, 8).Select(_ => new Label()).ToArray();
+    private readonly SetupBalanceBar[] _balanceBars = new SetupBalanceBar[3];
+    private readonly Label _setupQuality = new() { AutoSize = true };
+    private readonly Label _setupKnowledge = new() { AutoSize = true };
     private readonly ComboBox _driver = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = 300 };
-    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, SizeMode = TabSizeMode.Fixed, ItemSize = new Size(170, 38) };
+    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, SizeMode = TabSizeMode.Fixed, ItemSize = new Size(170, 38), DrawMode = TabDrawMode.OwnerDrawFixed };
     private readonly TrackBar[] _setupBars = new TrackBar[7];
     private readonly Label[] _setupValues = new Label[7];
     private readonly List<ComboBox> _tyreSelectors = new();
@@ -147,8 +159,9 @@ internal sealed class RaceControlPanel : UserControl
     public RaceControlPanel(string host, int port)
     {
         _host = string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host; _port = port; BackColor = DashboardForm.UiCanvas; ForeColor = DashboardForm.UiText; Padding = new Padding(22, 0, 0, 0);
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, BackColor = BackColor }; root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.Controls.Add(ConnectionBar(), 0, 0); root.Controls.Add(DriverBar(), 0, 1); root.Controls.Add(BuildTabs(), 0, 2); Controls.Add(root);
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, BackColor = BackColor }; root.RowStyles.Add(new RowStyle(SizeType.Absolute, 82)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 58)); root.RowStyles.Add(new RowStyle(SizeType.Absolute, 82)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.Controls.Add(ConnectionBar(), 0, 0); root.Controls.Add(DriverBar(), 0, 1); root.Controls.Add(TimingStrip(), 0, 2); root.Controls.Add(BuildTabs(), 0, 3); Controls.Add(root);
+        _tabs.DrawItem += DrawTab;
         _driver.SelectedIndexChanged += (_, _) => ApplySelectedSetup();
         HandleCreated += async (_, _) => await ConnectAsync(); Disposed += (_, _) => Disconnect();
     }
@@ -156,8 +169,8 @@ internal sealed class RaceControlPanel : UserControl
     private Control ConnectionBar()
     {
         var p = new Panel { Dock = DockStyle.Fill, BackColor = DashboardForm.UiSurface, Padding = new Padding(18) };
-        _state.Text = "●  Подключение…"; _state.ForeColor = DashboardForm.UiMuted; _state.Location = new Point(18, 18); p.Controls.Add(_state);
-        _session.Text = "Ожидание сессии"; _session.Location = new Point(18, 44); p.Controls.Add(_session);
+        _state.Text = "LINK  Подключение…"; _state.ForeColor = DashboardForm.UiMuted; _state.Location = new Point(18, 14); p.Controls.Add(_state);
+        _session.Text = "Ожидание сессии"; _session.Location = new Point(18, 38); p.Controls.Add(_session);
         var refresh = DashboardForm.ActionButton("ОБНОВИТЬ СОСТОЯНИЕ", DashboardForm.UiRaised, DashboardForm.UiText); refresh.Location = new Point(620, 24); refresh.Click += async (_, _) => await RefreshAsync(); p.Controls.Add(refresh); return p;
     }
 
@@ -168,9 +181,39 @@ internal sealed class RaceControlPanel : UserControl
         var test = DashboardForm.ActionButton("БЫСТРЫЙ ТЕСТ", DashboardForm.UiRaised, DashboardForm.UiText); test.Click += async (_, _) => await RunSmokeTestAsync(); p.Controls.Add(test); p.Controls.Add(_testState); return p;
     }
 
+    private Control TimingStrip()
+    {
+        string[] titles = { "SESSION", "LAP", "POSITION", "GAP", "LAST LAP", "BEST LAP", "FUEL", "TYRES" };
+        var strip = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = titles.Length, RowCount = 1, BackColor = DashboardForm.UiCanvas, Padding = new Padding(0, 6, 0, 8) };
+        for (int i = 0; i < titles.Length; i++)
+        {
+            strip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 12.5f));
+            var cell = new Panel { Dock = DockStyle.Fill, BackColor = DashboardForm.UiRaised, Margin = new Padding(i == 0 ? 0 : 3, 0, i == titles.Length - 1 ? 0 : 3, 0) };
+            cell.Controls.Add(new Label { Text = titles[i], ForeColor = DashboardForm.UiMuted, Font = new Font("Bahnschrift", 8f), AutoSize = true, Location = new Point(12, 8) });
+            _timingValues[i] = new Label { Text = "—", ForeColor = DashboardForm.UiText, Font = new Font("Bahnschrift SemiBold", 15f), AutoSize = true, Location = new Point(11, 28) }; cell.Controls.Add(_timingValues[i]); strip.Controls.Add(cell, i, 0);
+        }
+        return strip;
+    }
+
     private Control BuildTabs()
     {
         _tabs.Appearance = TabAppearance.Normal; _tabs.Controls.Add(Page("Практика", PracticeControls())); _tabs.Controls.Add(Page("Квалификация", QualifyingControls())); _tabs.Controls.Add(Page("Гонка", RaceControls())); return _tabs;
+    }
+    private void DrawTab(object? sender, DrawItemEventArgs e)
+    {
+        bool selected = e.Index == _tabs.SelectedIndex;
+        Rectangle bounds = e.Bounds;
+        using var background = new SolidBrush(selected ? DashboardForm.UiRaised : DashboardForm.UiCanvas);
+        e.Graphics.FillRectangle(background, bounds);
+        if (selected)
+        {
+            using var marker = new SolidBrush(DashboardForm.UiAccent);
+            e.Graphics.FillRectangle(marker, bounds.Left, bounds.Bottom - 3, bounds.Width, 3);
+        }
+        using var tabFont = new Font("Bahnschrift SemiBold", 10f);
+        TextRenderer.DrawText(e.Graphics, _tabs.TabPages[e.Index].Text, tabFont, bounds,
+            selected ? DashboardForm.UiText : DashboardForm.UiMuted,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
     private TabPage Page(string title, Control controls) { var page = new TabPage(title) { BackColor = DashboardForm.UiSurface, ForeColor = DashboardForm.UiText, Padding = new Padding(18) }; controls.Dock = DockStyle.Fill; page.Controls.Add(controls); return page; }
     private Control PracticeControls()
@@ -192,10 +235,23 @@ internal sealed class RaceControlPanel : UserControl
         var panel = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Dock = DockStyle.Fill, Padding = new Padding(0, 0, 18, 0), BackColor = DashboardForm.UiSurface };
         panel.Controls.Add(new Label { Text = "НАСТРОЙКА БОЛИДА", Font = new Font("Segoe UI Semibold", 16f), ForeColor = DashboardForm.UiText, AutoSize = true, Margin = new Padding(0, 0, 0, 4) });
         panel.Controls.Add(new Label { Text = "Текущие значения синхронизированы с машиной Host", ForeColor = DashboardForm.UiMuted, AutoSize = true, Margin = new Padding(0, 0, 0, 18) });
+        panel.Controls.Add(SetupOverview());
         panel.Controls.Add(SetupGroup("АЭРОДИНАМИКА", new[] { (4, "Переднее крыло", "Низкая прижимная сила", "Высокая прижимная сила"), (5, "Заднее крыло", "Скорость", "Стабильность") }));
         panel.Controls.Add(SetupGroup("СКОРОСТЬ", new[] { (3, "Передаточные числа", "Ускорение", "Максимальная скорость") }));
         panel.Controls.Add(SetupGroup("УПРАВЛЯЕМОСТЬ", new[] { (0, "Давление шин", "Ниже", "Выше"), (1, "Развал колёс", "Меньше", "Больше"), (2, "Жёсткость подвески", "Мягче", "Жёстче"), (6, "Распределение балласта", "Вперёд", "Назад") }));
         var apply = DashboardForm.ActionButton("СОХРАНИТЬ НАСТРОЙКУ", DashboardForm.UiRaised, DashboardForm.UiText); apply.Width = 560; apply.Height = 42; apply.Click += (_, _) => Send("setup_apply", 0); panel.Controls.Add(apply); return panel;
+    }
+
+    private Control SetupOverview()
+    {
+        var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Width = 570, Height = 230, BackColor = DashboardForm.UiCanvas, Padding = new Padding(16), Margin = new Padding(0, 0, 0, 14) };
+        var headline = new FlowLayoutPanel { Width = 530, Height = 38, WrapContents = false };
+        _setupQuality.Text = "КАЧЕСТВО  —"; _setupQuality.Font = new Font("Bahnschrift SemiBold", 15f); _setupQuality.ForeColor = DashboardForm.UiText; _setupQuality.Width = 260;
+        _setupKnowledge.Text = "ЗНАНИЯ  —"; _setupKnowledge.Font = new Font("Bahnschrift", 11f); _setupKnowledge.ForeColor = DashboardForm.UiMuted; _setupKnowledge.Padding = new Padding(0, 4, 0, 0);
+        headline.Controls.Add(_setupQuality); headline.Controls.Add(_setupKnowledge); box.Controls.Add(headline);
+        string[] labels = { "AERO  •  DOWNFORCE", "SPEED  •  ACCELERATION", "HANDLING  •  BALANCE" };
+        for (int i = 0; i < labels.Length; i++) { _balanceBars[i] = new SetupBalanceBar { Width = 530, Height = 48, Caption = labels[i], Margin = new Padding(0, 2, 0, 2) }; box.Controls.Add(_balanceBars[i]); }
+        return box;
     }
 
     private Control SetupGroup(string title, (int Option, string Name, string Left, string Right)[] entries)
@@ -255,7 +311,7 @@ internal sealed class RaceControlPanel : UserControl
 
     private async Task ConnectAsync()
     {
-        Disconnect(); try { _client = new TcpClient(); await _client.ConnectAsync(_host, _port); _writer = new StreamWriter(_client.GetStream(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" }; await _writer.WriteLineAsync("{\"type\":\"hello\",\"protocol\":0,\"name\":\"Integrated Race Command\"}"); _stop = new(); _state.Text = $"●  Host {_host}:{_port}"; _state.ForeColor = DashboardForm.UiAccent; _ = ReceiveAsync(_client.GetStream(), _stop.Token); await RequestTelemetryAsync(); } catch (Exception ex) { _state.Text = "●  Нет связи — " + ex.Message; _state.ForeColor = Color.FromArgb(240, 105, 105); }
+        Disconnect(); try { _client = new TcpClient(); await _client.ConnectAsync(_host, _port); _writer = new StreamWriter(_client.GetStream(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" }; await _writer.WriteLineAsync("{\"type\":\"hello\",\"protocol\":0,\"name\":\"Integrated Race Command\"}"); _stop = new(); _state.Text = $"LINK  Host {_host}:{_port}"; _state.ForeColor = DashboardForm.UiGood; _ = ReceiveAsync(_client.GetStream(), _stop.Token); await RequestTelemetryAsync(); } catch (Exception ex) { _state.Text = "LINK LOST  " + ex.Message; _state.ForeColor = Color.FromArgb(240, 105, 105); }
     }
     private async Task RefreshAsync() { if (_writer == null) await ConnectAsync(); else await RequestTelemetryAsync(); }
     private Task RequestTelemetryAsync() => _writer?.WriteLineAsync("{\"type\":\"telemetry_request\"}") ?? Task.CompletedTask;
@@ -266,8 +322,29 @@ internal sealed class RaceControlPanel : UserControl
         string session = root.TryGetProperty("session", out var s) ? s.GetString() ?? "" : ""; _session.Text = string.IsNullOrWhiteSpace(session) ? "Host подключён — сессия не запущена" : session;
         if (session.Contains("Practice", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 0; else if (session.Contains("Qual", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 1; else if (session.Contains("Race", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 2;
         int selected = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; var vehicles = new List<VehicleTelemetry>(); if (root.TryGetProperty("vehicles", out var a)) foreach (var item in a.EnumerateArray()) vehicles.Add(new(item.GetProperty("id").GetInt32(), item.GetProperty("driver").GetString() ?? "", item.GetProperty("lap").GetInt32(), item.GetProperty("position").GetInt32(), item.GetProperty("fuel").GetDouble(), item.GetProperty("tyreWear").GetDouble(), item.GetProperty("status").GetString() ?? "", ReadSetup(item), ReadTyres(item), ReadOptionalInt(item, "selectedTyreOption", -1), ReadOptionalInt(item, "selectedTyreIndex", -1), ReadOptionalText(item, "trim")));
-        _driver.Items.Clear(); foreach (var v in vehicles) _driver.Items.Add(v); if (_driver.Items.Count == 0) { _metrics.Text = "Пилоты появятся после входа Host в сессию"; return; } int index = vehicles.FindIndex(v => v.Id == selected); _driver.SelectedIndex = index >= 0 ? index : 0; var current = (VehicleTelemetry)_driver.SelectedItem!; _metrics.Text = $"   P{current.Position}   Круг {current.Lap}   Топливо {current.Fuel:0.0}   Шины {current.TyreWear:0}%"; ApplySelectedSetup();
+        _driver.Items.Clear(); foreach (var v in vehicles) _driver.Items.Add(v); if (_driver.Items.Count == 0) { _metrics.Text = "Пилоты появятся после входа Host в сессию"; ClearTiming(); return; } int index = vehicles.FindIndex(v => v.Id == selected); _driver.SelectedIndex = index >= 0 ? index : 0; var current = (VehicleTelemetry)_driver.SelectedItem!; _metrics.Text = "   " + LocalStatus(current.Status); ApplySelectedSetup();
+        if (root.TryGetProperty("vehicles", out var telemetryVehicles)) foreach (JsonElement item in telemetryVehicles.EnumerateArray()) if (item.GetProperty("id").GetInt32() == current.Id) { ApplyEngineeringTelemetry(root, item); break; }
     }
+
+    private void ApplyEngineeringTelemetry(JsonElement root, JsonElement vehicle)
+    {
+        double sessionTime = ReadOptionalDouble(root, "sessionTime"); int sessionLap = ReadOptionalInt(root, "sessionLap", 0); int sessionLapCount = ReadOptionalInt(root, "sessionLapCount", 0);
+        int lap = ReadOptionalInt(vehicle, "lap", 0); int position = ReadOptionalInt(vehicle, "position", 0); double gap = ReadOptionalDouble(vehicle, "gapLeader");
+        double lastLap = ReadOptionalDouble(vehicle, "lastLap"); double bestLap = ReadOptionalDouble(vehicle, "bestLap"); double fuel = ReadOptionalDouble(vehicle, "fuel"); double wear = ReadOptionalDouble(vehicle, "tyreWear"); double temp = ReadOptionalDouble(vehicle, "tyreTemperature");
+        _timingValues[0].Text = FormatClock(sessionTime); _timingValues[1].Text = sessionLapCount > 0 ? $"{sessionLap}/{sessionLapCount}" : lap.ToString(); _timingValues[2].Text = position > 0 ? "P" + position : "—";
+        _timingValues[3].Text = position <= 1 ? "LEADER" : "+" + gap.ToString("0.000"); _timingValues[4].Text = FormatLap(lastLap); _timingValues[5].Text = FormatLap(bestLap); _timingValues[6].Text = fuel.ToString("0.0") + " LAPS"; _timingValues[7].Text = wear.ToString("0") + "%  " + temp.ToString("0") + "°";
+        _timingValues[2].ForeColor = position <= 3 && position > 0 ? DashboardForm.UiPurple : DashboardForm.UiText; _timingValues[7].ForeColor = wear < 25 ? Color.FromArgb(240, 105, 105) : DashboardForm.UiText;
+        double[] balance = ReadDoubleArray(vehicle, "setupBalance"); double[] min = ReadDoubleArray(vehicle, "setupRecommendedMin"); double[] max = ReadDoubleArray(vehicle, "setupRecommendedMax");
+        for (int i = 0; i < _balanceBars.Length; i++) if (_balanceBars[i] != null && balance.Length > i && min.Length > i && max.Length > i) _balanceBars[i].SetValues((float)balance[i], (float)min[i], (float)max[i]);
+        double quality = ReadOptionalDouble(vehicle, "setupQuality"); double knowledge = ReadOptionalDouble(vehicle, "setupKnowledge"); _setupQuality.Text = $"КАЧЕСТВО  {quality:0}%"; _setupQuality.ForeColor = quality >= 90 ? DashboardForm.UiGood : quality >= 75 ? DashboardForm.UiText : Color.FromArgb(255, 184, 76); _setupKnowledge.Text = $"ЗНАНИЯ МЕХАНИКА  {knowledge:0}%";
+    }
+
+    private void ClearTiming() { foreach (Label value in _timingValues) value.Text = "—"; }
+    private static string LocalStatus(string status) => status switch { "NoActionRequired" => "НА ТРАССЕ / ГОТОВ", "ReturningToGarage" => "ВОЗВРАЩАЕТСЯ В ГАРАЖ", "WaitingForSetupCompletion" => "МЕХАНИКИ РАБОТАЮТ", "Pitting" => "ПИТ-СТОП", _ => status };
+    private static string FormatClock(double seconds) { if (seconds <= 0) return "—"; TimeSpan value = TimeSpan.FromSeconds(seconds); return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"mm\:ss"); }
+    private static string FormatLap(double seconds) { if (seconds <= 0) return "—"; TimeSpan value = TimeSpan.FromSeconds(seconds); return $"{(int)value.TotalMinutes}:{value.Seconds:00}.{value.Milliseconds:000}"; }
+    private static double ReadOptionalDouble(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.TryGetDouble(out double result) ? result : 0d;
+    private static double[] ReadDoubleArray(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Array ? property.EnumerateArray().Select(item => item.GetDouble()).ToArray() : Array.Empty<double>();
     private void ApplySelectedSetup() { var vehicle = _driver.SelectedItem as VehicleTelemetry; var setup = vehicle?.Setup; if (setup != null) for (int i = 0; i < Math.Min(setup.Length, _setupBars.Length); i++) if (_setupBars[i] != null) { _setupBars[i].Enabled = setup[i] >= 0; if (setup[i] >= 0) _setupBars[i].Value = Math.Max(0, Math.Min(100, (int)Math.Round(setup[i] * 100))); } if (_practiceProgram != null && vehicle != null) _practiceProgram.SelectedIndex = vehicle.Trim.IndexOf("Qual", StringComparison.OrdinalIgnoreCase) >= 0 ? 0 : 1; foreach (ComboBox selector in _tyreSelectors) { int selectedOption = vehicle?.SelectedTyreOption ?? -1; int selectedIndex = vehicle?.SelectedTyreIndex ?? -1; selector.Items.Clear(); foreach (TyreChoice tyre in vehicle?.Tyres ?? new List<TyreChoice>()) selector.Items.Add(tyre); int match = (vehicle?.Tyres ?? new List<TyreChoice>()).FindIndex(t => t.Option == selectedOption && t.Index == selectedIndex); if (selector.Items.Count > 0) selector.SelectedIndex = match >= 0 ? match : 0; } }
     private static double[] ReadSetup(JsonElement vehicle) { if (!vehicle.TryGetProperty("setup", out var values)) return Array.Empty<double>(); return values.EnumerateArray().Select(value => value.GetDouble()).ToArray(); }
     private static List<TyreChoice> ReadTyres(JsonElement vehicle) { var result = new List<TyreChoice>(); if (!vehicle.TryGetProperty("tyres", out var values)) return result; foreach (JsonElement value in values.EnumerateArray()) result.Add(new(value.GetProperty("option").GetInt32(), value.GetProperty("index").GetInt32(), value.GetProperty("name").GetString() ?? "")); return result; }
@@ -338,6 +415,30 @@ internal sealed class RaceControlPanel : UserControl
         throw new InvalidOperationException("Пилот исчез из телеметрии");
     }
     private void Disconnect() { _stop?.Cancel(); _stop?.Dispose(); _stop = null; _writer?.Dispose(); _writer = null; _client?.Dispose(); _client = null; }
+}
+
+internal sealed class SetupBalanceBar : Control
+{
+    private float _current;
+    private float _minimum = -1f;
+    private float _maximum = 1f;
+    public string Caption { get; set; } = "SETUP";
+
+    public SetupBalanceBar() { DoubleBuffered = true; BackColor = DashboardForm.UiCanvas; ForeColor = DashboardForm.UiText; Font = new Font("Bahnschrift", 8.5f); }
+
+    public void SetValues(float current, float minimum, float maximum) { _current = Math.Max(-1f, Math.Min(1f, current)); _minimum = Math.Max(-1f, Math.Min(1f, minimum)); _maximum = Math.Max(-1f, Math.Min(1f, maximum)); Invalidate(); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e); e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var captionBrush = new SolidBrush(DashboardForm.UiMuted); e.Graphics.DrawString(Caption, Font, captionBrush, 0, 1);
+        var track = new Rectangle(0, 24, Math.Max(10, Width - 58), 7);
+        using var trackBrush = new SolidBrush(Color.FromArgb(55, 64, 72)); e.Graphics.FillRectangle(trackBrush, track);
+        int minX = track.Left + (int)((_minimum + 1f) * 0.5f * track.Width); int maxX = track.Left + (int)((_maximum + 1f) * 0.5f * track.Width);
+        using var rangeBrush = new SolidBrush(Color.FromArgb(38, 214, 123)); e.Graphics.FillRectangle(rangeBrush, Math.Min(minX, maxX), track.Top, Math.Max(3, Math.Abs(maxX - minX)), track.Height);
+        int currentX = track.Left + (int)((_current + 1f) * 0.5f * track.Width); using var marker = new Pen(Color.White, 3f); e.Graphics.DrawLine(marker, currentX, track.Top - 5, currentX, track.Bottom + 5);
+        using var valueBrush = new SolidBrush(DashboardForm.UiText); using var valueFont = new Font("Bahnschrift SemiBold", 10f); e.Graphics.DrawString((_current * 100f).ToString("+0;-0;0"), valueFont, valueBrush, track.Right + 8, 17);
+    }
 }
 
 internal sealed class SmokeTestConfig
