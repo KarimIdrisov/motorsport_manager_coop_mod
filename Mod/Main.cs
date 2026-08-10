@@ -1637,10 +1637,22 @@ namespace MotorsportManagerCoop
                         for (int tyreIndex = 0; tyreIndex < tyreCount; tyreIndex++)
                         {
                             TyreSet tyre = pair.Value.GetTyre((SessionStrategy.TyreOption)tyreOption, tyreIndex);
+                            float tyreLapRange = tyre == null || trackLength <= 0f ? 0f : TyreSet.CalculateLapRangeOfTyre(tyre, trackLength) * tyre.GetCondition();
+                            int tyreMaxLaps = Mathf.FloorToInt(tyreLapRange);
+                            int tyreMinLaps = tyreMaxLaps - 2;
+                            if (tyreMinLaps <= 0 && tyreMaxLaps > 1) tyreMinLaps = 1;
+                            if (tyreMinLaps < 0) tyreMinLaps = 0;
                             if (!firstTyre) json.Append(',');
                             firstTyre = false;
                             json.Append("{\"option\":").Append(tyreOption).Append(",\"index\":").Append(tyreIndex);
-                            json.Append(",\"name\":\"").Append(JsonEscape(tyre == null ? "" : tyre.GetCompound().ToString())).Append("\"}");
+                            json.Append(",\"name\":\"").Append(JsonEscape(tyre == null ? "" : tyre.GetCompound().ToString())).Append('"');
+                            json.Append(",\"condition\":").Append((tyre == null ? 0f : tyre.GetCondition() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                            json.Append(",\"temperature\":").Append((tyre == null ? 0f : tyre.GetTemperature() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                            json.Append(",\"minLaps\":").Append(tyreMinLaps).Append(",\"maxLaps\":").Append(tyreMaxLaps);
+                            json.Append(",\"speed\":").Append((tyre == null ? 0f : tyre.GetPerformanceForUI(tyre.GetTread()) * 100f).ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                            json.Append(",\"durability\":").Append((tyre == null ? 0f : tyre.GetDurabilityForUI() * 100f).ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                            json.Append(",\"tread\":\"").Append(JsonEscape(tyre == null ? "" : tyre.GetTread().ToString())).Append('"');
+                            json.Append(",\"current\":").Append(object.ReferenceEquals(tyre, currentTyre) ? "true" : "false").Append('}');
                         }
                     }
                     json.Append(']');

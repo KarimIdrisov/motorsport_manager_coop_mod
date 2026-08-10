@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace MotorsportManagerCoopLauncher;
 
-internal sealed record TyreChoice(int Option, int Index, string Name)
+internal sealed record TyreChoice(int Option, int Index, string Name, double Condition = 0, double Temperature = 0, int MinLaps = 0, int MaxLaps = 0, double Speed = 0, double Durability = 0, string Tread = "", bool Current = false)
 {
     public override string ToString()
     {
