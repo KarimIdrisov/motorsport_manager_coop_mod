@@ -340,7 +340,7 @@ internal sealed class RaceControlPanel : UserControl
     }
 
     private void ClearTiming() { foreach (Label value in _timingValues) value.Text = "—"; }
-    private static string LocalStatus(string status) => status switch { "NoActionRequired" => "НА ТРАССЕ / ГОТОВ", "ReturningToGarage" => "ВОЗВРАЩАЕТСЯ В ГАРАЖ", "WaitingForSetupCompletion" => "МЕХАНИКИ РАБОТАЮТ", "Pitting" => "ПИТ-СТОП", _ => status };
+    private static string LocalStatus(string status) => status switch { "Garage" => "В ГАРАЖЕ / ГОТОВ", "NoActionRequired" => "НА ТРАССЕ / ГОТОВ", "ReturningToGarage" => "ВОЗВРАЩАЕТСЯ В ГАРАЖ", "WaitingForSetupCompletion" => "МЕХАНИКИ РАБОТАЮТ", "Pitting" => "ПИТ-СТОП", _ => status };
     private static string FormatClock(double seconds) { if (seconds <= 0) return "—"; TimeSpan value = TimeSpan.FromSeconds(seconds); return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"mm\:ss"); }
     private static string FormatLap(double seconds) { if (seconds <= 0) return "—"; TimeSpan value = TimeSpan.FromSeconds(seconds); return $"{(int)value.TotalMinutes}:{value.Seconds:00}.{value.Milliseconds:000}"; }
     private static double ReadOptionalDouble(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.TryGetDouble(out double result) ? result : 0d;

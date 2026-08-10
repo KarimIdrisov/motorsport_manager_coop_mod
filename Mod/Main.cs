@@ -1690,7 +1690,8 @@ namespace MotorsportManagerCoop
                         json.Append(",\"setupKnowledge\":").Append((knowledge * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     }
                     else json.Append(']');
-                    json.Append(",\"status\":\"").Append(JsonEscape(ReadText(pair.Value, "status", "mStatus"))).Append("\"}");
+                    string vehicleStatus = IsActuallyInGarage(pair.Value) ? "Garage" : ReadText(pair.Value, "status", "mStatus");
+                    json.Append(",\"status\":\"").Append(JsonEscape(vehicleStatus)).Append("\"}");
                 }
                 json.Append("]}\n");
                 return Encoding.UTF8.GetBytes(json.ToString());
@@ -1730,6 +1731,9 @@ namespace MotorsportManagerCoop
         {
             RacingVehicle vehicle = VehicleFromComponent(strategy);
             if (vehicle == null || vehicle.setup == null || !IsActuallyInGarage(strategy)) return false;
+            SessionManager manager = Game.instance == null ? null : Game.instance.sessionManager;
+            if (manager != null && manager.sessionType == SessionDetails.SessionType.Qualifying)
+                strategy.SetAIFuelForPracticeAndQualifying();
             vehicle.setup.MakeSetupChanges();
             Log("started standard send out sequence vehicle=" + vehicle.id + " status=" + strategy.status);
             return true;
