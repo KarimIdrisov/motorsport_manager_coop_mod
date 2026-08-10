@@ -138,6 +138,9 @@ internal sealed class RaceControlPanel : UserControl
     private readonly TrackBar[] _setupBars = new TrackBar[7];
     private readonly List<ComboBox> _tyreSelectors = new();
     private TcpClient? _client; private StreamWriter? _writer; private CancellationTokenSource? _stop;
+    private JsonElement? _latestTelemetry;
+    private readonly Label _testState = new() { AutoSize = true, ForeColor = DashboardForm.UiMuted };
+    private bool _testRunning;
 
     public RaceControlPanel(string host, int port)
     {
@@ -159,7 +162,8 @@ internal sealed class RaceControlPanel : UserControl
     private Control DriverBar()
     {
         var p = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = DashboardForm.UiCanvas, Padding = new Padding(0, 14, 0, 6) };
-        p.Controls.Add(new Label { Text = "ПИЛОТ", ForeColor = DashboardForm.UiMuted, AutoSize = true, Padding = new Padding(0, 7, 8, 0) }); _driver.BackColor = DashboardForm.UiRaised; _driver.ForeColor = DashboardForm.UiText; p.Controls.Add(_driver); p.Controls.Add(_metrics); return p;
+        p.Controls.Add(new Label { Text = "ПИЛОТ", ForeColor = DashboardForm.UiMuted, AutoSize = true, Padding = new Padding(0, 7, 8, 0) }); _driver.BackColor = DashboardForm.UiRaised; _driver.ForeColor = DashboardForm.UiText; p.Controls.Add(_driver); p.Controls.Add(_metrics);
+        var test = DashboardForm.ActionButton("БЫСТРЫЙ ТЕСТ", DashboardForm.UiRaised, DashboardForm.UiText); test.Click += async (_, _) => await RunSmokeTestAsync(); p.Controls.Add(test); p.Controls.Add(_testState); return p;
     }
 
     private Control BuildTabs()
@@ -206,17 +210,98 @@ internal sealed class RaceControlPanel : UserControl
     }
     private async Task RefreshAsync() { if (_writer == null) await ConnectAsync(); else await RequestTelemetryAsync(); }
     private Task RequestTelemetryAsync() => _writer?.WriteLineAsync("{\"type\":\"telemetry_request\"}") ?? Task.CompletedTask;
-    private async Task ReceiveAsync(NetworkStream stream, CancellationToken token) { try { using var reader = new StreamReader(stream, Encoding.UTF8, false, 8192, true); while (!token.IsCancellationRequested) { string? line = await reader.ReadLineAsync(token); if (line == null) break; JsonElement? t = TelemetryJson.Parse(line); if (t.HasValue) BeginInvoke(() => ApplyTelemetry(t.Value)); } } catch (Exception ex) when (!token.IsCancellationRequested) { BeginInvoke(() => { _state.Text = "●  Связь потеряна — " + ex.Message; _state.ForeColor = Color.FromArgb(240, 105, 105); }); } }
+    private async Task ReceiveAsync(NetworkStream stream, CancellationToken token) { try { using var reader = new StreamReader(stream, Encoding.UTF8, false, 8192, true); while (!token.IsCancellationRequested) { string? line = await reader.ReadLineAsync(token); if (line == null) throw new IOException("Host закрыл соединение"); JsonElement? t = TelemetryJson.Parse(line); if (t.HasValue) BeginInvoke(() => ApplyTelemetry(t.Value)); } } catch (Exception ex) when (!token.IsCancellationRequested) { BeginInvoke(() => { Disconnect(); _state.Text = "●  Связь потеряна — " + ex.Message; _state.ForeColor = Color.FromArgb(240, 105, 105); }); } }
     private void ApplyTelemetry(JsonElement root)
     {
+        _latestTelemetry = root;
         string session = root.TryGetProperty("session", out var s) ? s.GetString() ?? "" : ""; _session.Text = string.IsNullOrWhiteSpace(session) ? "Host подключён — сессия не запущена" : session;
         if (session.Contains("Practice", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 0; else if (session.Contains("Qual", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 1; else if (session.Contains("Race", StringComparison.OrdinalIgnoreCase)) _tabs.SelectedIndex = 2;
-        int selected = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; var vehicles = new List<VehicleTelemetry>(); if (root.TryGetProperty("vehicles", out var a)) foreach (var item in a.EnumerateArray()) vehicles.Add(new(item.GetProperty("id").GetInt32(), item.GetProperty("driver").GetString() ?? "", item.GetProperty("lap").GetInt32(), item.GetProperty("position").GetInt32(), item.GetProperty("fuel").GetDouble(), item.GetProperty("tyreWear").GetDouble(), item.GetProperty("status").GetString() ?? "", ReadSetup(item), ReadTyres(item)));
+        int selected = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; var vehicles = new List<VehicleTelemetry>(); if (root.TryGetProperty("vehicles", out var a)) foreach (var item in a.EnumerateArray()) vehicles.Add(new(item.GetProperty("id").GetInt32(), item.GetProperty("driver").GetString() ?? "", item.GetProperty("lap").GetInt32(), item.GetProperty("position").GetInt32(), item.GetProperty("fuel").GetDouble(), item.GetProperty("tyreWear").GetDouble(), item.GetProperty("status").GetString() ?? "", ReadSetup(item), ReadTyres(item), ReadOptionalInt(item, "selectedTyreOption", -1), ReadOptionalInt(item, "selectedTyreIndex", -1)));
         _driver.Items.Clear(); foreach (var v in vehicles) _driver.Items.Add(v); if (_driver.Items.Count == 0) { _metrics.Text = "Пилоты появятся после входа Host в сессию"; return; } int index = vehicles.FindIndex(v => v.Id == selected); _driver.SelectedIndex = index >= 0 ? index : 0; var current = (VehicleTelemetry)_driver.SelectedItem!; _metrics.Text = $"   P{current.Position}   Круг {current.Lap}   Топливо {current.Fuel:0.0}   Шины {current.TyreWear:0}%"; ApplySelectedSetup();
     }
-    private void ApplySelectedSetup() { var vehicle = _driver.SelectedItem as VehicleTelemetry; var setup = vehicle?.Setup; if (setup != null) for (int i = 0; i < Math.Min(setup.Length, _setupBars.Length); i++) if (_setupBars[i] != null) { _setupBars[i].Enabled = setup[i] >= 0; if (setup[i] >= 0) _setupBars[i].Value = Math.Max(0, Math.Min(100, (int)Math.Round(setup[i] * 100))); } foreach (ComboBox selector in _tyreSelectors) { int selectedOption = (selector.SelectedItem as TyreChoice)?.Option ?? -1; int selectedIndex = (selector.SelectedItem as TyreChoice)?.Index ?? -1; selector.Items.Clear(); foreach (TyreChoice tyre in vehicle?.Tyres ?? new List<TyreChoice>()) selector.Items.Add(tyre); int match = (vehicle?.Tyres ?? new List<TyreChoice>()).FindIndex(t => t.Option == selectedOption && t.Index == selectedIndex); if (selector.Items.Count > 0) selector.SelectedIndex = match >= 0 ? match : 0; } }
+    private void ApplySelectedSetup() { var vehicle = _driver.SelectedItem as VehicleTelemetry; var setup = vehicle?.Setup; if (setup != null) for (int i = 0; i < Math.Min(setup.Length, _setupBars.Length); i++) if (_setupBars[i] != null) { _setupBars[i].Enabled = setup[i] >= 0; if (setup[i] >= 0) _setupBars[i].Value = Math.Max(0, Math.Min(100, (int)Math.Round(setup[i] * 100))); } foreach (ComboBox selector in _tyreSelectors) { int selectedOption = vehicle?.SelectedTyreOption ?? -1; int selectedIndex = vehicle?.SelectedTyreIndex ?? -1; selector.Items.Clear(); foreach (TyreChoice tyre in vehicle?.Tyres ?? new List<TyreChoice>()) selector.Items.Add(tyre); int match = (vehicle?.Tyres ?? new List<TyreChoice>()).FindIndex(t => t.Option == selectedOption && t.Index == selectedIndex); if (selector.Items.Count > 0) selector.SelectedIndex = match >= 0 ? match : 0; } }
     private static double[] ReadSetup(JsonElement vehicle) { if (!vehicle.TryGetProperty("setup", out var values)) return Array.Empty<double>(); return values.EnumerateArray().Select(value => value.GetDouble()).ToArray(); }
     private static List<TyreChoice> ReadTyres(JsonElement vehicle) { var result = new List<TyreChoice>(); if (!vehicle.TryGetProperty("tyres", out var values)) return result; foreach (JsonElement value in values.EnumerateArray()) result.Add(new(value.GetProperty("option").GetInt32(), value.GetProperty("index").GetInt32(), value.GetProperty("name").GetString() ?? "")); return result; }
-    private void Send(string kind, int value, int aux = 0) { if (_writer == null) { _state.Text = "●  Нажмите «Обновить состояние»"; return; } int target = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; _writer.WriteLine(JsonSerializer.Serialize(new { type = "action", kind, target, value, aux, flag = 0 })); }
+    private static int ReadOptionalInt(JsonElement value, string name, int fallback) => value.TryGetProperty(name, out var property) && property.TryGetInt32(out int result) ? result : fallback;
+    private void Send(string kind, int value, int aux = 0) { if (_writer == null) { _state.Text = "●  Нажмите «Обновить состояние»"; return; } int target = (_driver.SelectedItem as VehicleTelemetry)?.Id ?? -1; try { _writer.WriteLine(JsonSerializer.Serialize(new { type = "action", kind, target, value, aux, flag = 0 })); } catch (Exception ex) { Disconnect(); _state.Text = "●  Команда не отправлена — " + ex.Message; _state.ForeColor = Color.FromArgb(240, 105, 105); } }
+
+    private async Task RunSmokeTestAsync()
+    {
+        if (_testRunning) return;
+        if (_writer == null || _driver.SelectedItem is not VehicleTelemetry vehicle) { _testState.Text = "Нет подключения или пилота"; return; }
+        _testRunning = true;
+        var results = new List<string>();
+        try
+        {
+            SmokeTestConfig config = SmokeTestConfig.Load();
+            await CheckAsync("скорость", () => Send("simulation_speed", config.Speed), root => ReadInt(root, "speed") == config.Speed, results, config.CommandTimeoutMs);
+            await CheckAsync("пауза", () => Send("pause_or_play", 0), root => ReadBool(root, "paused"), results);
+            Send("pause_or_play", 0);
+            await WaitForAsync(root => !ReadBool(root, "paused"), 4000);
+
+            double[] setup = vehicle.Setup ?? Array.Empty<double>();
+            int setupOption = Array.FindIndex(setup, value => value >= 0);
+            if (setupOption >= 0)
+            {
+                int setupValue = setup[setupOption] > 0.55 ? config.SetupLow : config.SetupHigh;
+                await CheckAsync("настройки", () => { Send("setup_value", setupValue, setupOption); Send("setup_apply", 0); },
+                    root => Math.Abs(ReadVehicle(root, vehicle.Id).GetProperty("setup")[setupOption].GetDouble() - setupValue / 1000d) < 0.01, results);
+            }
+            else results.Add("SKIP настройки");
+
+            await CheckAsync("программа", () => Send("ordered_lap_count", config.OrderedLaps),
+                root => ReadVehicle(root, vehicle.Id).TryGetProperty("orderedLaps", out var laps) && laps.GetInt32() == config.OrderedLaps, results, config.CommandTimeoutMs);
+
+            JsonElement currentVehicle = ReadVehicle(_latestTelemetry!.Value, vehicle.Id);
+            string status = currentVehicle.TryGetProperty("status", out var statusValue) ? statusValue.GetString() ?? "" : "";
+            if (status == "NoActionRequired")
+                await CheckAsync("выпуск", () => Send("send_out_on_track", 0),
+                    root => (ReadVehicle(root, vehicle.Id).GetProperty("status").GetString() ?? "") != "NoActionRequired", results, 12000);
+            else results.Add("SKIP выпуск (" + status + ")");
+        }
+        catch (Exception ex) { results.Add("FAIL " + ex.Message); }
+        finally { _testRunning = false; _testState.Text = string.Join("  •  ", results); }
+    }
+
+    private async Task CheckAsync(string name, Action action, Func<JsonElement, bool> condition, List<string> results, int timeoutMs = 6000)
+    {
+        _testState.Text = "Проверка: " + name; action();
+        results.Add(await WaitForAsync(condition, timeoutMs) ? "PASS " + name : "FAIL " + name);
+    }
+
+    private async Task<bool> WaitForAsync(Func<JsonElement, bool> condition, int timeoutMs)
+    {
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (_latestTelemetry.HasValue && condition(_latestTelemetry.Value)) return true;
+            await RequestTelemetryAsync(); await Task.Delay(250);
+        }
+        return false;
+    }
+
+    private static int ReadInt(JsonElement root, string name) => root.TryGetProperty(name, out var value) ? value.GetInt32() : -1;
+    private static bool ReadBool(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.GetBoolean();
+    private static JsonElement ReadVehicle(JsonElement root, int id)
+    {
+        if (root.TryGetProperty("vehicles", out var vehicles)) foreach (JsonElement vehicle in vehicles.EnumerateArray()) if (vehicle.GetProperty("id").GetInt32() == id) return vehicle;
+        throw new InvalidOperationException("Пилот исчез из телеметрии");
+    }
     private void Disconnect() { _stop?.Cancel(); _stop?.Dispose(); _stop = null; _writer?.Dispose(); _writer = null; _client?.Dispose(); _client = null; }
+}
+
+internal sealed class SmokeTestConfig
+{
+    public int Speed { get; set; } = 1;
+    public int SetupLow { get; set; } = 450;
+    public int SetupHigh { get; set; } = 650;
+    public int OrderedLaps { get; set; } = 4;
+    public int CommandTimeoutMs { get; set; } = 6000;
+
+    public static SmokeTestConfig Load()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "race-tests.json");
+        try { return JsonSerializer.Deserialize<SmokeTestConfig>(File.ReadAllText(path)) ?? new SmokeTestConfig(); }
+        catch { return new SmokeTestConfig(); }
+    }
 }

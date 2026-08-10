@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\lan_server.js" Link="lan_server.js" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\race-tests.json" Link="race-tests.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="Loader\**\*" LinkBase="Loader" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Loader\**\*.dll" LinkBase="Loader" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

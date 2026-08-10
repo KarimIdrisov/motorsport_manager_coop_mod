@@ -864,30 +864,36 @@ namespace MotorsportManagerCoop
 
         private static void OnPitFuelChanged(SessionPitstop __instance, int __0)
         {
+            if (!_enabled) return;
             CapturePitstop(__instance);
             SendRaceAction("pit_fuel", VehicleIdFromComponent(__instance), __0);
         }
 
         private static void OnPitRepairChanged(SessionPitstop __instance)
         {
+            if (!_enabled) return;
             CapturePitstop(__instance);
             SendRaceAction("pit_repair", VehicleIdFromComponent(__instance), 1);
         }
 
         private static void OnPitBatteryChanged(SessionPitstop __instance, float __0, float __1)
         {
+            if (!_enabled) return;
             CapturePitstop(__instance);
             SendRaceAction("pit_battery", VehicleIdFromComponent(__instance), Mathf.RoundToInt(__0 * 1000f), Mathf.RoundToInt(__1 * 1000f));
         }
 
         private static void OnPitTyresChanged(SessionPitstop __instance, TyreSet __0, bool __1)
         {
+            if (!_enabled) return;
             CapturePitstop(__instance);
             RacingVehicle vehicle = VehicleFromComponent(__instance);
             if (vehicle == null || vehicle.strategy == null || __0 == null) return;
             foreach (SessionStrategy.TyreOption option in Enum.GetValues(typeof(SessionStrategy.TyreOption)))
             {
-                int count = vehicle.strategy.GetTyreCount(option);
+                int count;
+                try { count = vehicle.strategy.GetTyreCount(option); }
+                catch (NullReferenceException) { continue; }
                 for (int index = 0; index < count; index++)
                 {
                     if (!System.Object.ReferenceEquals(vehicle.strategy.GetTyre(option, index), __0)) continue;

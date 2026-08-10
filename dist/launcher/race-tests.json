@@ -1,0 +1,7 @@
+{
+  "Speed": 1,
+  "SetupLow": 450,
+  "SetupHigh": 650,
+  "OrderedLaps": 4,
+  "CommandTimeoutMs": 6000
+}
