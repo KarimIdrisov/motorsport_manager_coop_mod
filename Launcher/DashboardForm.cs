@@ -145,6 +145,7 @@ internal sealed class RaceControlPanel : UserControl
     private readonly SetupBalanceBar[] _balanceBars = new SetupBalanceBar[3];
     private readonly Label _setupQuality = new() { AutoSize = true };
     private readonly Label _setupKnowledge = new() { AutoSize = true };
+    private readonly Label[] _tyreStatusValues = Enumerable.Range(0, 6).Select(_ => new Label()).ToArray();
     private readonly ComboBox _driver = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = 300 };
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, SizeMode = TabSizeMode.Fixed, ItemSize = new Size(170, 38), DrawMode = TabDrawMode.OwnerDrawFixed };
     private readonly TrackBar[] _setupBars = new TrackBar[7];
@@ -226,7 +227,7 @@ internal sealed class RaceControlPanel : UserControl
         return layout;
     }
     private Control QualifyingControls() => Sections(QualifyingStintSection(), ModeSection(), EngineSection(), Row(("НА ТРАССУ", "send_out_on_track", 0), ("В ГАРАЖ", "return_to_garage", 0), ("ПИТ", "pit_command", 0)), SpeedSection());
-    private Control RaceControls() => Sections(RacePitSection(), ModeSection(), EngineSection(), Row(("ERS: ЗАРЯД", "ers_mode", 0), ("ERS: ГИБРИД", "ers_mode", 1), ("ERS: МОЩНОСТЬ", "ers_mode", 2)), Row(("ОТМЕНИТЬ ПИТ", "cancel_pit", 0), ("РЕМОНТ", "pit_repair", 1)), SpeedSection());
+    private Control RaceControls() => Sections(RaceTyreStatusSection(), RacePitSection(), ModeSection(), EngineSection(), Row(("ERS: ЗАРЯД", "ers_mode", 0), ("ERS: ГИБРИД", "ers_mode", 1), ("ERS: МОЩНОСТЬ", "ers_mode", 2)), Row(("ОТМЕНИТЬ ПИТ", "cancel_pit", 0), ("РЕМОНТ", "pit_repair", 1)), SpeedSection());
     private Control ModeSection() => Row(("АТАКА", "driving_style", 0), ("PUSH", "driving_style", 1), ("НЕЙТРАЛЬНО", "driving_style", 2), ("БЕРЕЧЬ", "driving_style", 3), ("ОТСТУПАТЬ", "driving_style", 4));
     private Control EngineSection() => Row(("СУПЕР-ОБГОН", "engine_mode", 0), ("ОБГОН", "engine_mode", 1), ("ВЫСОКИЙ", "engine_mode", 2), ("СРЕДНИЙ", "engine_mode", 3), ("НИЗКИЙ", "engine_mode", 4));
     private Control SpeedSection() => Row(("ПАУЗА / ПУСК", "pause_or_play", 0), ("1×", "simulation_speed", 0), ("2×", "simulation_speed", 1), ("4×", "simulation_speed", 2));
@@ -310,6 +311,22 @@ internal sealed class RaceControlPanel : UserControl
         return box;
     }
 
+    private Control RaceTyreStatusSection()
+    {
+        string[] titles = { "СОСТАВ", "РЕСУРС", "ИЗНОС", "ТЕМПЕРАТУРА", "ПОТЕРЯ", "СОСТОЯНИЕ" };
+        var box = PlanBox("ШИНЫ НА ТРАССЕ");
+        var grid = new TableLayoutPanel { Width = 740, Height = 64, ColumnCount = titles.Length, RowCount = 1, Margin = new Padding(4, 0, 0, 4) };
+        for (int i = 0; i < titles.Length; i++)
+        {
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / titles.Length));
+            var cell = new Panel { Dock = DockStyle.Fill, BackColor = DashboardForm.UiCanvas, Margin = new Padding(0, 0, 4, 0) };
+            cell.Controls.Add(new Label { Text = titles[i], ForeColor = DashboardForm.UiMuted, Font = new Font("Bahnschrift", 8f), AutoSize = true, Location = new Point(9, 7) });
+            _tyreStatusValues[i] = new Label { Text = "—", ForeColor = DashboardForm.UiText, Font = new Font("Bahnschrift SemiBold", 12f), AutoSize = true, Location = new Point(8, 28) };
+            cell.Controls.Add(_tyreStatusValues[i]); grid.Controls.Add(cell, i, 0);
+        }
+        box.Width = 780; box.Controls.Add(grid); return box;
+    }
+
     private FlowLayoutPanel PlanBox(string title) { var box = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, Width = 390, AutoSize = true, BackColor = DashboardForm.UiRaised, Padding = new Padding(15), Margin = new Padding(0, 0, 0, 16) }; box.Controls.Add(new Label { Text = title, Font = new Font("Segoe UI Semibold", 14f), ForeColor = DashboardForm.UiText, AutoSize = true, Margin = new Padding(4, 0, 0, 12) }); return box; }
     private ComboBox ChoiceBox(int width) => new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = width, BackColor = DashboardForm.UiCanvas, ForeColor = DashboardForm.UiText };
     private ComboBox TyreBox() { var tyres = ChoiceBox(260); _tyreSelectors.Add(tyres); return tyres; }
@@ -352,6 +369,10 @@ internal sealed class RaceControlPanel : UserControl
         double[] balance = ReadDoubleArray(vehicle, "setupBalance"); double[] min = ReadDoubleArray(vehicle, "setupRecommendedMin"); double[] max = ReadDoubleArray(vehicle, "setupRecommendedMax");
         for (int i = 0; i < _balanceBars.Length; i++) if (_balanceBars[i] != null && balance.Length > i && min.Length > i && max.Length > i) _balanceBars[i].SetValues((float)balance[i], (float)min[i], (float)max[i]);
         double quality = ReadOptionalDouble(vehicle, "setupQuality"); double knowledge = ReadOptionalDouble(vehicle, "setupKnowledge"); _setupQuality.Text = $"КАЧЕСТВО  {quality:0}%"; _setupQuality.ForeColor = quality >= 90 ? DashboardForm.UiGood : quality >= 75 ? DashboardForm.UiText : Color.FromArgb(255, 184, 76); _setupKnowledge.Text = $"ЗНАНИЯ МЕХАНИКА  {knowledge:0}%";
+        string compound = ReadOptionalText(vehicle, "currentCompound"); double tyreLaps = ReadOptionalDouble(vehicle, "tyreLapsRemaining"); double cliff = ReadOptionalDouble(vehicle, "tyreCliff"); double timeCost = ReadOptionalDouble(vehicle, "tyreTimeCost");
+        bool punctured = ReadOptionalBool(vehicle, "tyrePunctured"); bool wrong = ReadOptionalBool(vehicle, "tyreWrongCompound"); bool lost = ReadOptionalBool(vehicle, "tyreLostWheel");
+        _tyreStatusValues[0].Text = string.IsNullOrWhiteSpace(compound) ? "—" : compound.ToUpperInvariant(); _tyreStatusValues[1].Text = tyreLaps > 0 ? tyreLaps.ToString("0.0") + " LAPS" : "—"; _tyreStatusValues[2].Text = $"{wear:0}% / {cliff:0}%"; _tyreStatusValues[3].Text = $"{temp:0}%"; _tyreStatusValues[4].Text = timeCost > 0.005 ? $"+{timeCost:0.000}s" : "OPTIMAL"; _tyreStatusValues[5].Text = lost ? "WHEEL LOST" : punctured ? "PUNCTURE" : wrong ? "WRONG TYRE" : temp < 25 ? "COLD" : temp > 80 ? "HOT" : wear <= cliff ? "CLIFF" : "OK";
+        _tyreStatusValues[5].ForeColor = lost || punctured || wrong || wear <= cliff ? Color.FromArgb(240, 105, 105) : temp < 25 || temp > 80 ? Color.FromArgb(255, 184, 76) : DashboardForm.UiGood;
     }
 
     private void ClearTiming() { foreach (Label value in _timingValues) value.Text = "—"; }
@@ -359,6 +380,7 @@ internal sealed class RaceControlPanel : UserControl
     private static string FormatClock(double seconds) { if (seconds <= 0) return "—"; TimeSpan value = TimeSpan.FromSeconds(seconds); return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"mm\:ss"); }
     private static string FormatLap(double seconds) { if (seconds <= 0) return "—"; TimeSpan value = TimeSpan.FromSeconds(seconds); return $"{(int)value.TotalMinutes}:{value.Seconds:00}.{value.Milliseconds:000}"; }
     private static double ReadOptionalDouble(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.TryGetDouble(out double result) ? result : 0d;
+    private static bool ReadOptionalBool(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False && property.GetBoolean();
     private static double[] ReadDoubleArray(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Array ? property.EnumerateArray().Select(item => item.GetDouble()).ToArray() : Array.Empty<double>();
     private void ApplySelectedSetup() { var vehicle = _driver.SelectedItem as VehicleTelemetry; var setup = vehicle?.Setup; if (setup != null) for (int i = 0; i < Math.Min(setup.Length, _setupBars.Length); i++) if (_setupBars[i] != null) { _setupBars[i].Enabled = setup[i] >= 0; if (setup[i] >= 0) _setupBars[i].Value = Math.Max(0, Math.Min(100, (int)Math.Round(setup[i] * 100))); } if (_practiceProgram != null && vehicle != null) _practiceProgram.SelectedIndex = vehicle.Trim.IndexOf("Qual", StringComparison.OrdinalIgnoreCase) >= 0 ? 0 : 1; foreach (ComboBox selector in _tyreSelectors) { if (selector.Focused || selector.DroppedDown) continue; int selectedOption = vehicle?.SelectedTyreOption ?? -1; int selectedIndex = vehicle?.SelectedTyreIndex ?? -1; selector.Items.Clear(); foreach (TyreChoice tyre in vehicle?.Tyres ?? new List<TyreChoice>()) selector.Items.Add(tyre); int match = (vehicle?.Tyres ?? new List<TyreChoice>()).FindIndex(t => t.Option == selectedOption && t.Index == selectedIndex); if (selector.Items.Count > 0) selector.SelectedIndex = match >= 0 ? match : 0; } }
     private static double[] ReadSetup(JsonElement vehicle) { if (!vehicle.TryGetProperty("setup", out var values)) return Array.Empty<double>(); return values.EnumerateArray().Select(value => value.GetDouble()).ToArray(); }

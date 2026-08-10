@@ -1620,6 +1620,14 @@ namespace MotorsportManagerCoop
                     json.Append(",\"tyreWear\":").Append((currentTyre == null ? 0f : currentTyre.GetCondition() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     json.Append(",\"tyreTemperature\":").Append((currentTyre == null ? 0f : currentTyre.GetTemperature() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     json.Append(",\"currentCompound\":\"").Append(JsonEscape(currentTyre == null ? "" : currentTyre.GetCompound().ToString())).Append('"');
+                    float trackLength = manager == null || manager.eventDetails == null || manager.eventDetails.circuit == null ? 0f : GameUtility.MilesToMeters(manager.eventDetails.circuit.trackLengthMiles);
+                    json.Append(",\"tyreLapsRemaining\":").Append((currentTyre == null || trackLength <= 0f ? 0f : currentTyre.GetTyreDistance() / trackLength).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyreCliff\":").Append((currentTyre == null ? 0f : currentTyre.GetCliffCondition() * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyreTimeCost\":").Append((currentTyre == null ? 0f : currentTyre.GetTimeCost()).ToString("0.000", System.Globalization.CultureInfo.InvariantCulture));
+                    json.Append(",\"tyreTread\":\"").Append(JsonEscape(currentTyre == null ? "" : currentTyre.GetTread().ToString())).Append('"');
+                    json.Append(",\"tyrePunctured\":").Append(currentTyre != null && currentTyre.isPunctured ? "true" : "false");
+                    json.Append(",\"tyreWrongCompound\":").Append(currentTyre != null && currentTyre.hasWrongCompoundFitted ? "true" : "false");
+                    json.Append(",\"tyreLostWheel\":").Append(currentTyre != null && currentTyre.hasLostWheel ? "true" : "false");
                     json.Append(",\"orderedLaps\":").Append((int)ReadNumber(pair.Value, "orderedLapCount", "mOrderedLapCount"));
                     json.Append(",\"tyres\":[");
                     bool firstTyre = true;
