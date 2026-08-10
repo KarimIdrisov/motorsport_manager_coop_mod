@@ -1145,6 +1145,8 @@ namespace MotorsportManagerCoop
                         targetStrategy.SetOrderedLapCount(value);
                     else if (incoming.IndexOf("send_out_on_track", StringComparison.Ordinal) >= 0)
                     {
+                        if (targetStrategy.status != SessionStrategy.Status.NoActionRequired && IsActuallyInGarage(targetStrategy))
+                            targetStrategy.SetStatus(SessionStrategy.Status.NoActionRequired);
                         if (targetStrategy.status == SessionStrategy.Status.NoActionRequired) targetStrategy.SendOutOnTrack();
                         else { _pendingSendOut.Add(incomingTarget); Log("queued remote send out vehicle=" + incomingTarget + " status=" + targetStrategy.status); }
                     }
@@ -1350,7 +1352,10 @@ namespace MotorsportManagerCoop
                 foreach (int vehicleId in new List<int>(_pendingSendOut))
                 {
                     SessionStrategy pendingStrategy;
-                    if (!_strategiesByVehicle.TryGetValue(vehicleId, out pendingStrategy) || pendingStrategy.status != SessionStrategy.Status.NoActionRequired) continue;
+                    if (!_strategiesByVehicle.TryGetValue(vehicleId, out pendingStrategy)) continue;
+                    if (pendingStrategy.status != SessionStrategy.Status.NoActionRequired && IsActuallyInGarage(pendingStrategy))
+                        pendingStrategy.SetStatus(SessionStrategy.Status.NoActionRequired);
+                    if (pendingStrategy.status != SessionStrategy.Status.NoActionRequired) continue;
                     try { _applyRemoteAction = true; pendingStrategy.SendOutOnTrack(); _pendingSendOut.Remove(vehicleId); Log("applied queued send out vehicle=" + vehicleId); }
                     catch (Exception ex) { Log("queued send out failed=" + ex.Message); }
                     finally { _applyRemoteAction = false; }
@@ -1670,6 +1675,13 @@ namespace MotorsportManagerCoop
             if (details == null || details.input == null) return -1f;
             SetupInput_v1.SetupInputOptions key = (SetupInput_v1.SetupInputOptions)option;
             return details.input.setup.ContainsKey(key) ? details.input.setup[key] : -1f;
+        }
+
+        private static bool IsActuallyInGarage(SessionStrategy strategy)
+        {
+            RacingVehicle vehicle = VehicleFromComponent(strategy);
+            return vehicle != null && vehicle.pathState != null &&
+                vehicle.pathState.stateType == PathStateManager.StateType.Garage;
         }
 
         private static string ReadText(object instance, params string[] names)
